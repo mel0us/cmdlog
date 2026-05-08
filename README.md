@@ -35,7 +35,7 @@ your platform and lays it out as:
 ```
 
 This layout is canonical: `cmdlog install <shell>` and the hooks themselves
-both rely on it. To pin a specific release: `./install.sh v2.1.0`.
+both rely on it. To pin a specific release: `./install.sh v2.1.1`.
 
 ### Build from source
 

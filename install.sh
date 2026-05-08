@@ -39,11 +39,14 @@ resolve_tag() {
     fi
 }
 
+tmp=""
+trap '[ -n "$tmp" ] && rm -rf "$tmp"' EXIT
+
 main() {
     command -v curl >/dev/null || err "curl is required"
     command -v tar  >/dev/null || err "tar is required"
 
-    local target tag asset url tmp staged
+    local target tag asset url staged
     target=$(detect_target)
     tag=$(resolve_tag)
     [ -n "$tag" ] || err "could not resolve release tag"
@@ -55,7 +58,6 @@ main() {
     log "asset:    $asset"
 
     tmp=$(mktemp -d)
-    trap 'rm -rf "$tmp"' EXIT
 
     log "downloading $url"
     curl -fsSL "$url" -o "$tmp/$asset" || err "download failed"
