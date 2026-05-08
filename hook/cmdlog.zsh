@@ -1,0 +1,59 @@
+# hook/cmdlog.zsh — Source from ~/.zshrc
+# Records interactive commands via cmdlog binary.
+# Safe to re-source: functions are redefined, precmd_functions is deduped.
+#
+# Usage: source /path/to/hook/cmdlog.zsh
+
+# Only activate in interactive shells
+[[ -o interactive ]] || return 0
+
+# Derive paths from this script's location (relocatable)
+typeset -g __CMDLOG_DIR="${0:A:h:h}"
+typeset -g __CMDLOG_BIN="${__CMDLOG_DIR}/cmdlog"
+
+# Record function — always redefined on re-source (picks up new binary path)
+__cmdlog_record() {
+    local __cmdlog_ec=$?
+    # Get the last history entry (fc is a builtin)
+    local cmd
+    cmd=$(fc -ln -1) || return 0
+    cmd="${cmd#"${cmd%%[! ]*}"}"
+    cmd="${cmd%"${cmd##*[! ]}"}"
+    [[ -n "$cmd" ]] || return 0
+
+    # Delegate all filtering to the binary
+    "$__CMDLOG_BIN" record zsh "$PWD" "$__cmdlog_ec" "$cmd"
+}
+
+# Install as precmd hook (idempotent — safe on re-source).
+# precmd_functions is an array — robust against other tools.
+(( ${+precmd_functions} )) || typeset -ga precmd_functions
+if (( ! ${precmd_functions[(Ie)__cmdlog_record]} )); then
+    precmd_functions=(__cmdlog_record "${precmd_functions[@]}")
+fi
+
+# Wrapper function — always redefined on re-source (picks up new binary path)
+# Captures TUI selection and injects into edit buffer.
+cmdlog() {
+    if [[ "${1-}" == "list" ]]; then
+        local cmd method
+        method=$("$__CMDLOG_BIN" config inject.zsh)
+        cmd=$("$__CMDLOG_BIN" "$@")
+        if [[ -n "$cmd" ]]; then
+            case "$method" in
+                tiocsti)
+                    "$__CMDLOG_BIN" inject zsh "$cmd" || true
+                    ;;
+                history)
+                    print -s -- "$cmd"
+                    ;;
+                *)
+                    # "print-z" (default): push onto edit buffer
+                    print -z "$cmd"
+                    ;;
+            esac
+        fi
+    else
+        "$__CMDLOG_BIN" "$@"
+    fi
+}

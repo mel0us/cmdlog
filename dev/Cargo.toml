@@ -1,0 +1,17 @@
+[package]
+name = "cmdlog"
+version = "2.0.2"
+edition = "2021"
+
+[dependencies]
+crossterm = "0.28"
+ratatui = "0.29"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+toml_edit = "0.22"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
