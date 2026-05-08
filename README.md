@@ -11,17 +11,31 @@ injects it into your prompt for editing before execution.
 ## Quick Start
 
 ```bash
-# Build
-make
+# Install latest release (Linux x86_64/aarch64, macOS arm64)
+curl -fsSL https://raw.githubusercontent.com/mel0us/cmdlog/main/install.sh | bash
 
-# Install hook for your shell
-./cmdlog install bash    # or: zsh, tcsh
+# Wire up your shell
+cmdlog install bash      # or: zsh, tcsh
 
-# Open a new shell, run some commands, then:
+# Open a new shell, then:
 cmdlog list              # launches interactive TUI
 ```
 
 ## Installation
+
+`install.sh` (run in Quick Start above) downloads the prebuilt tarball for
+your platform and lays it out as:
+
+```
+~/.local/share/cmdlog/
+├── cmdlog              # binary
+├── default.conf        # seed config
+└── hook/{cmdlog.bash, cmdlog.zsh, cmdlog.tcsh}
+~/.local/bin/cmdlog     # symlink → ~/.local/share/cmdlog/cmdlog
+```
+
+This layout is canonical: `cmdlog install <shell>` and the hooks themselves
+both rely on it. To pin a specific release: `./install.sh v2.1.0`.
 
 ### Build from source
 
@@ -31,24 +45,23 @@ make release        # optimized build (LTO, stripped, ~2 MB)
 make install        # release build + copy to ./bin/
 ```
 
-Requires Rust toolchain (cargo). No other dependencies.
+Requires Rust toolchain (cargo). To use a from-source build with the shell
+hooks, copy the binary, `default.conf`, and `hook/` into `~/.local/share/cmdlog/`
+and symlink the binary into `~/.local/bin/cmdlog`.
 
-### Install shell hook
+### Hook install details
 
-```bash
-cmdlog install bash      # appends hook to ~/.bashrc_custom or ~/.bashrc
-cmdlog install zsh       # appends hook to ~/.zshrc_custom or ~/.zshrc
-cmdlog install tcsh      # appends hook to ~/.tcshrc_custom, ~/.tcshrc, ~/.cshrc_custom, or ~/.cshrc
-```
+`cmdlog install <shell>` writes a guarded block (`# >>> cmdlog >>>` ...
+`# <<< cmdlog <<<`) containing `source ~/.local/share/cmdlog/hook/cmdlog.<shell>`
+into the first existing rc candidate:
 
-The installer appends a guarded source block (`# >>> cmdlog >>>`...`# <<< cmdlog <<<`)
-to the first existing rc file. It detects and refuses duplicate installs.
+| Shell | rc candidates (first match wins) |
+|-------|----------------------------------|
+| bash  | `~/.bashrc_custom`, `~/.bashrc` |
+| zsh   | `~/.zshrc_custom`, `~/.zshrc` |
+| tcsh  | `~/.tcshrc_custom`, `~/.tcshrc`, `~/.cshrc_custom`, `~/.cshrc` |
 
-To remove:
-
-```bash
-cmdlog uninstall bash    # or: zsh, tcsh
-```
+Re-runs are detected and refused. To remove: `cmdlog uninstall <shell>`.
 
 ## Usage
 
@@ -159,10 +172,9 @@ cmdlog compact -n           # dry-run: list each entry with reason
 cmdlog compact -f           # force: remove entries from the log
 ```
 
-Without flags, compact shows a count. `-n`/`--dry-run` lists each removable
-entry with its reason (`[waived]` in yellow, `[malformed]` in red, tab
-characters shown with reverse-video highlight). `-f`/`--force` performs the
-actual removal with atomic temp-file + verify + rename.
+`-n` annotates reasons (`[waived]` in yellow, `[malformed]` in red, with tab
+characters in reverse-video). `-f` rewrites the log atomically (temp-file +
+verify + rename).
 
 ### Linear Output
 
@@ -194,8 +206,8 @@ cmdlog list -d 2026-04 -p /tmp -n 50   # April, /tmp prefix, last 50
 
 ## Configuration
 
-Settings are stored in `~/.cmdlog.conf` (TOML). A default config is
-auto-created on first run from `default.conf` in the project directory.
+Settings are stored in `~/.cmdlog.conf` (TOML), auto-created on first run
+from `~/.local/share/cmdlog/default.conf`.
 
 TUI settings (show columns, filters, group, order) are saved automatically
 when you exit the TUI, so your preferences persist between sessions.
@@ -309,26 +321,23 @@ Accepted commands are appended as a TSV line to `~/.cmdlog.tsv`:
 ### Querying
 
 `cmdlog list` reads the log, applies waive filtering and dedup at display
-time, then either launches the TUI or prints linear output.
-
-The TUI renders on stderr. When you select a command and press Enter, it
-prints to stdout and exits. The shell wrapper captures this and injects it
-into your prompt for editing, preserving access to aliases, functions,
-and shell-specific syntax.
+time, then either launches the TUI (rendered on stderr) or prints linear
+output. Config validation runs inline before the TUI starts — run
+`cmdlog doctor` to repair broken configs.
 
 ### Shell Wrapper
 
 Each hook defines a `cmdlog()` wrapper function (or alias in tcsh) that
 intercepts `cmdlog list` calls. The wrapper:
-1. Captures the binary's stdout (the selected command)
-2. Reads the injection method from `~/.cmdlog.conf` `[inject]` section
-3. Injects the command into the shell's edit buffer using the configured method
 
-Config validation runs inline inside `cmdlog list` before the TUI starts —
-no separate process fork. Run `cmdlog doctor` manually to repair broken configs.
+1. Captures the binary's stdout (the selected command, printed when you
+   press Enter in the TUI).
+2. Reads the injection method from `~/.cmdlog.conf` `[inject]`.
+3. Injects the command into the shell's edit buffer for editing,
+   preserving access to aliases, functions, and shell-specific syntax.
 
-The tcsh hook chains into the existing `precmd` alias (e.g., gitprompt.pl)
-rather than replacing it, so other precmd tools continue to work.
+The tcsh hook chains into any existing `precmd` alias (e.g., gitprompt.pl)
+rather than replacing it.
 
 ## Log File
 
@@ -357,3 +366,7 @@ Format: `DATE\tSHELL\tPWD\tEXIT_CODE\tCMD` (TSV, one line per entry).
 
 Hooks fire after command completion, before the next prompt. No impact on
 command execution latency.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

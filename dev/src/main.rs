@@ -17,13 +17,12 @@ use cmdlog::{cmd, log, time, tui};
 // Paths
 // ---------------------------------------------------------------------------
 
+fn home_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from(env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()))
+}
+
 fn cmdlog_dir() -> std::path::PathBuf {
-    // Derive project root from the binary's own location (relocatable).
-    env::current_exe()
-        .expect("cannot determine binary location")
-        .parent()
-        .expect("binary has no parent directory")
-        .to_path_buf()
+    home_dir().join(".local/share/cmdlog")
 }
 
 // ---------------------------------------------------------------------------
@@ -39,10 +38,7 @@ fn cmd_record(shell: &str, pwd: &str, exit_code: &str, raw_cmd: &str) {
 // ---------------------------------------------------------------------------
 
 fn cmd_install(shell: &str, force: bool) {
-    let dir = cmdlog_dir();
-    let home = std::path::PathBuf::from(
-        std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string())
-    );
+    let home = home_dir();
 
     let hook_file = cmdlog::hook::hook_filename(shell);
     if hook_file.is_empty() {
@@ -50,7 +46,7 @@ fn cmd_install(shell: &str, force: bool) {
         process::exit(1);
     }
 
-    let hook_path = dir.join("hook").join(hook_file);
+    let hook_path = cmdlog_dir().join("hook").join(hook_file);
     if !hook_path.exists() {
         eprintln!("Hook file not found: {}", hook_path.display());
         process::exit(1);
@@ -75,12 +71,7 @@ fn cmd_install(shell: &str, force: bool) {
         false
     };
 
-    let cmdlog_dir_opt = match shell {
-        "tcsh" => Some(dir.as_path()),
-        _ => None,
-    };
-
-    match cmdlog::hook::install_hook(&rc_path, &hook_path, cmdlog_dir_opt) {
+    match cmdlog::hook::install_hook(&rc_path, &hook_path) {
         Ok(()) => {
             let verb = if reinstalled { "Reinstalled" } else { "Installed" };
             println!("{} cmdlog hook in {}", verb, rc_path.display());
@@ -93,9 +84,7 @@ fn cmd_install(shell: &str, force: bool) {
 }
 
 fn cmd_uninstall(shell: &str) {
-    let home = std::path::PathBuf::from(
-        std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string())
-    );
+    let home = home_dir();
 
     let hook_file = cmdlog::hook::hook_filename(shell);
     if hook_file.is_empty() {

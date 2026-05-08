@@ -7,9 +7,7 @@
 # Only activate in interactive shells
 [[ -o interactive ]] || return 0
 
-# Derive paths from this script's location (relocatable)
-typeset -g __CMDLOG_DIR="${0:A:h:h}"
-typeset -g __CMDLOG_BIN="${__CMDLOG_DIR}/cmdlog"
+typeset -g __CMDLOG_BIN="$HOME/.local/bin/cmdlog"
 
 # Record function — always redefined on re-source (picks up new binary path)
 __cmdlog_record() {

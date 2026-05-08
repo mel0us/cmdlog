@@ -45,12 +45,7 @@ pub fn hook_filename(shell: &str) -> &'static str {
 }
 
 /// Install a hook into an rc file. Appends a guarded source block.
-/// `cmdlog_dir` is only needed for tcsh (to set `__cmdlog_dir`).
-pub fn install_hook(
-    rc_path: &Path,
-    hook_path: &Path,
-    cmdlog_dir: Option<&Path>,
-) -> Result<(), String> {
+pub fn install_hook(rc_path: &Path, hook_path: &Path) -> Result<(), String> {
     let content = fs::read_to_string(rc_path)
         .map_err(|e| format!("Cannot read {}: {}", rc_path.display(), e))?;
 
@@ -78,30 +73,21 @@ pub fn install_hook(
         }
     }
 
-    // Build the source line
-    let hook_abs = hook_path.to_string_lossy();
-    let source_line = if let Some(dir) = cmdlog_dir {
-        // tcsh/csh: set __cmdlog_dir before source
-        format!(
-            "set __cmdlog_dir = {}\nsource {}",
-            dir.to_string_lossy(),
-            hook_abs
-        )
-    } else {
-        format!("source {}", hook_abs)
-    };
-
-    // Alias and env var: tcsh/csh vs bash/zsh syntax
-    let (alias_line, tz_line) = if cmdlog_dir.is_some() {
+    // tcsh/csh use a different alias and setenv syntax.
+    let is_csh = hook_name.ends_with(".tcsh") || hook_name.ends_with(".csh");
+    let (alias_line, tz_line) = if is_csh {
         ("alias cl 'cmdlog list'", "setenv CMDLOG_TZ +8")
     } else {
         ("alias cl='cmdlog list'", "export CMDLOG_TZ=+8")
     };
 
-    // Append guarded block
     let block = format!(
-        "\n{}\n{}\n{}\n{}\n{}\n",
-        GUARD_BEGIN, source_line, alias_line, tz_line, GUARD_END
+        "\n{}\nsource {}\n{}\n{}\n{}\n",
+        GUARD_BEGIN,
+        hook_path.to_string_lossy(),
+        alias_line,
+        tz_line,
+        GUARD_END,
     );
 
     fs::write(rc_path, content + &block)

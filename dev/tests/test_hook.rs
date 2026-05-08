@@ -65,7 +65,7 @@ fn install_hook_appends_guarded_block() {
     fs::create_dir_all(dir.join("hook")).unwrap();
     fs::write(&hook_path, "# hook\n").unwrap();
 
-    let result = install_hook(&rc, &hook_path, None);
+    let result = install_hook(&rc, &hook_path);
     assert!(result.is_ok());
 
     let content = fs::read_to_string(&rc).unwrap();
@@ -87,7 +87,7 @@ fn install_hook_fails_if_guard_present() {
     fs::create_dir_all(dir.join("hook")).unwrap();
     fs::write(&hook_path, "# hook\n").unwrap();
 
-    let result = install_hook(&rc, &hook_path, None);
+    let result = install_hook(&rc, &hook_path);
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("already present"));
 
@@ -103,7 +103,7 @@ fn install_hook_fails_if_manual_source_present() {
     fs::create_dir_all(dir.join("hook")).unwrap();
     fs::write(&hook_path, "# hook\n").unwrap();
 
-    let result = install_hook(&rc, &hook_path, None);
+    let result = install_hook(&rc, &hook_path);
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("already present"));
 
@@ -111,7 +111,7 @@ fn install_hook_fails_if_manual_source_present() {
 }
 
 #[test]
-fn install_hook_tcsh_includes_cmdlog_dir() {
+fn install_hook_tcsh_uses_csh_syntax() {
     let dir = tmp_dir("install_tcsh");
     let rc = dir.join(".tcshrc");
     fs::write(&rc, "# tcshrc\n").unwrap();
@@ -119,12 +119,14 @@ fn install_hook_tcsh_includes_cmdlog_dir() {
     fs::create_dir_all(dir.join("hook")).unwrap();
     fs::write(&hook_path, "# hook\n").unwrap();
 
-    let result = install_hook(&rc, &hook_path, Some(&dir));
+    let result = install_hook(&rc, &hook_path);
     assert!(result.is_ok());
 
     let content = fs::read_to_string(&rc).unwrap();
-    assert!(content.contains("set __cmdlog_dir ="));
     assert!(content.contains("\nsource "));
+    assert!(content.contains("alias cl 'cmdlog list'"));
+    assert!(content.contains("setenv CMDLOG_TZ"));
+    assert!(!content.contains("export CMDLOG_TZ"));
 
     cleanup(&dir);
 }

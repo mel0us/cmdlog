@@ -7,9 +7,7 @@
 # Only activate in interactive shells
 [[ $- == *i* ]] || return 0
 
-# Derive paths from this script's location (relocatable)
-__CMDLOG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-__CMDLOG_BIN="${__CMDLOG_DIR}/cmdlog"
+__CMDLOG_BIN="$HOME/.local/bin/cmdlog"
 
 # Record function — always redefined on re-source (picks up new binary path)
 __cmdlog_record() {
