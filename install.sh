@@ -19,7 +19,7 @@ TAG="${1:-latest}"
 GLIBC_REQUIRED="2.35"
 
 err() { printf 'install: %s\n' "$*" >&2; exit 1; }
-log() { printf 'install: %s\n' "$*"; }
+log() { printf 'install: %s\n' "$*" >&2; }
 
 # Echo the system glibc version (e.g. "2.35"), or empty if not glibc.
 detect_glibc() {
