@@ -14,18 +14,48 @@ PREFIX="$HOME/.local/share/cmdlog"
 BIN_DIR="$HOME/.local/bin"
 TAG="${1:-latest}"
 
+# Linux glibc builds are produced on ubuntu-22.04 (glibc 2.35).
+# Older systems get the musl build instead.
+GLIBC_REQUIRED="2.35"
+
 err() { printf 'install: %s\n' "$*" >&2; exit 1; }
 log() { printf 'install: %s\n' "$*"; }
+
+# Echo the system glibc version (e.g. "2.35"), or empty if not glibc.
+detect_glibc() {
+    local v
+    v=$(ldd --version 2>/dev/null | head -n1 | awk '{print $NF}')
+    echo "$v" | grep -qE '^[0-9]+\.[0-9]+$' && echo "$v"
+}
+
+# True (0) if the running glibc is >= GLIBC_REQUIRED.
+glibc_meets_requirement() {
+    local cur
+    cur=$(detect_glibc)
+    [ -n "$cur" ] || return 1
+    [ "$(printf '%s\n%s\n' "$GLIBC_REQUIRED" "$cur" | sort -V | head -n1)" = "$GLIBC_REQUIRED" ]
+}
 
 detect_target() {
     local os arch
     os=$(uname -s)
     arch=$(uname -m)
     case "$os/$arch" in
-        Linux/x86_64)              echo "x86_64-unknown-linux-gnu" ;;
-        Linux/aarch64|Linux/arm64) echo "aarch64-unknown-linux-gnu" ;;
-        Darwin/arm64)              echo "aarch64-apple-darwin" ;;
+        Darwin/arm64)              echo "aarch64-apple-darwin"; return ;;
+        Linux/x86_64)              ;;
+        Linux/aarch64|Linux/arm64) ;;
         *) err "unsupported platform: $os/$arch" ;;
+    esac
+
+    local libc="gnu"
+    if ! glibc_meets_requirement; then
+        libc="musl"
+        log "system glibc < $GLIBC_REQUIRED (or non-glibc) — using musl build"
+    fi
+
+    case "$arch" in
+        x86_64)         echo "x86_64-unknown-linux-${libc}" ;;
+        aarch64|arm64)  echo "aarch64-unknown-linux-${libc}" ;;
     esac
 }
 
