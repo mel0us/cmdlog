@@ -48,14 +48,18 @@ jobs:
 
       - name: Stage artifact
         run: |
-          mkdir -p dist
-          cp dev/target/${{ matrix.target }}/release/cmdlog dist/cmdlog-${{ matrix.target }}
+          stage="cmdlog-${{ matrix.target }}"
+          mkdir -p "dist/$stage/hook"
+          cp dev/target/${{ matrix.target }}/release/cmdlog "dist/$stage/cmdlog"
+          cp default.conf "dist/$stage/default.conf"
+          cp hook/cmdlog.bash hook/cmdlog.zsh hook/cmdlog.tcsh "dist/$stage/hook/"
+          tar -C dist -czf "dist/$stage.tar.gz" "$stage"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v5
         with:
           name: cmdlog-${{ matrix.target }}
-          path: dist/cmdlog-${{ matrix.target }}
+          path: dist/cmdlog-${{ matrix.target }}.tar.gz
           if-no-files-found: error
 
   release:
