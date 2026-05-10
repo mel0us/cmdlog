@@ -61,10 +61,9 @@ jobs:
       - name: Stage artifact
         run: |
           stage="cmdlog-${{ matrix.target }}"
-          mkdir -p "dist/$stage/hook"
+          mkdir -p "dist/$stage"
           cp dev/target/${{ matrix.target }}/release/cmdlog "dist/$stage/cmdlog"
           cp default.conf "dist/$stage/default.conf"
-          cp hook/cmdlog.bash hook/cmdlog.zsh hook/cmdlog.tcsh "dist/$stage/hook/"
           tar -C dist -czf "dist/$stage.tar.gz" "$stage"
 
       - name: Upload artifact

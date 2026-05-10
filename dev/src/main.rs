@@ -40,16 +40,18 @@ fn cmd_record(shell: &str, pwd: &str, exit_code: &str, raw_cmd: &str) {
 fn cmd_install(shell: &str, force: bool) {
     let home = home_dir();
 
-    let hook_file = cmdlog::hook::hook_filename(shell);
-    if hook_file.is_empty() {
+    if cmdlog::hook::hook_source(shell).is_none() {
         eprintln!("Unknown shell: {}. Expected: bash, zsh, tcsh", shell);
         process::exit(1);
     }
 
-    let hook_path = cmdlog_dir().join("hook").join(hook_file);
-    if !hook_path.exists() {
-        eprintln!("Hook file not found: {}", hook_path.display());
-        process::exit(1);
+    // tcsh can't use eval (backtick collapses newlines) — extract the embedded
+    // hook to disk so the rc block can `source` it.
+    if shell == "tcsh" {
+        if let Err(e) = cmdlog::hook::write_tcsh_hook(&home) {
+            eprintln!("{}", e);
+            process::exit(1);
+        }
     }
 
     let candidates = cmdlog::hook::rc_candidates(shell, &home);
@@ -71,7 +73,7 @@ fn cmd_install(shell: &str, force: bool) {
         false
     };
 
-    match cmdlog::hook::install_hook(&rc_path, &hook_path) {
+    match cmdlog::hook::install_hook(&rc_path, shell, &home) {
         Ok(()) => {
             let verb = if reinstalled { "Reinstalled" } else { "Installed" };
             println!("{} cmdlog hook in {}", verb, rc_path.display());
@@ -101,8 +103,7 @@ fn cmd_hook(shell: &str) {
 fn cmd_uninstall(shell: &str) {
     let home = home_dir();
 
-    let hook_file = cmdlog::hook::hook_filename(shell);
-    if hook_file.is_empty() {
+    if cmdlog::hook::hook_source(shell).is_none() {
         eprintln!("Unknown shell: {}. Expected: bash, zsh, tcsh", shell);
         process::exit(1);
     }

@@ -31,14 +31,12 @@ your platform and lays it out as:
 
 ```
 ~/.local/share/cmdlog/
-├── cmdlog              # binary
-├── default.conf        # seed config
-└── hook/{cmdlog.bash, cmdlog.zsh, cmdlog.tcsh}
+├── cmdlog              # binary (hooks for all three shells embedded inside)
+└── default.conf        # seed config
 ~/.local/bin/cmdlog     # symlink → ~/.local/share/cmdlog/cmdlog
 ```
 
-This layout is canonical: `cmdlog install <shell>` and the hooks themselves
-both rely on it. To pin a specific release: `./install.sh v2.1.1`.
+To pin a specific release: `./install.sh v2.4.0`.
 
 ### Build from source
 
@@ -48,42 +46,30 @@ make release        # optimized build (LTO, stripped, ~2 MB)
 make install        # release build + copy to ./bin/
 ```
 
-Requires Rust toolchain (cargo). To use a from-source build with the shell
-hooks, copy the binary, `default.conf`, and `hook/` into `~/.local/share/cmdlog/`
-and symlink the binary into `~/.local/bin/cmdlog`.
+Requires Rust toolchain (cargo). To use a from-source build, copy the binary
+and `default.conf` into `~/.local/share/cmdlog/` and symlink the binary into
+`~/.local/bin/cmdlog`. Shell hooks are embedded in the binary — no separate
+hook files to copy.
 
 ### Hook install details
 
 `cmdlog install <shell>` writes a guarded block (`# >>> cmdlog >>>` ...
-`# <<< cmdlog <<<`) containing `source ~/.local/share/cmdlog/hook/cmdlog.<shell>`
-into the first existing rc candidate:
+`# <<< cmdlog <<<`) into the first existing rc candidate:
 
-| Shell | rc file |
-|-------|---------|
-| bash  | `~/.bashrc` |
-| zsh   | `~/.zshrc` |
-| tcsh  | `~/.tcshrc` (or `~/.cshrc` if `~/.tcshrc` doesn't exist) |
+| Shell | rc file | rc content |
+|-------|---------|------------|
+| bash  | `~/.bashrc` | `eval "$(~/.local/bin/cmdlog hook bash)"` |
+| zsh   | `~/.zshrc`  | `eval "$(~/.local/bin/cmdlog hook zsh)"`  |
+| tcsh  | `~/.tcshrc` (or `~/.cshrc`) | `source ~/.local/share/cmdlog/cmdlog.tcsh` |
 
-Re-runs are detected and refused. To remove: `cmdlog uninstall <shell>`.
+bash and zsh evaluate the hook source printed by `cmdlog hook <shell>` at
+shell startup, so the hook always matches the installed binary. tcsh's
+backtick substitution collapses newlines and breaks eval, so `cmdlog install
+tcsh` extracts the embedded hook to `~/.local/share/cmdlog/cmdlog.tcsh` and
+sources that file.
 
-### Alternative: eval-based wiring (bash/zsh)
-
-If you prefer fzf/zoxide-style integration, the hook source is also available
-from the binary itself:
-
-```bash
-# .bashrc
-eval "$(cmdlog hook bash)"
-
-# .zshrc
-eval "$(cmdlog hook zsh)"
-```
-
-The `cmdlog hook <shell>` subcommand prints the same hook contents that
-`cmdlog install` wires up via `source`. Adds one fork (~2 ms) per shell start
-in exchange for the hook always matching the binary version. Both `cmdlog hook
-bash` and `cmdlog hook --bash` forms are accepted. tcsh users should keep the
-`source` form because tcsh backtick substitution collapses newlines.
+Re-runs are detected and refused (both eval and legacy source forms). To
+remove: `cmdlog uninstall <shell>`.
 
 ## Usage
 

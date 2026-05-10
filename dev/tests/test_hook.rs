@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use cmdlog::hook::{find_rc_file, hook_source, install_hook, uninstall_hook};
+use cmdlog::hook::{find_rc_file, hook_source, install_hook, tcsh_hook_path, uninstall_hook, write_tcsh_hook};
 
 fn tmp_dir(suffix: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
@@ -57,23 +57,62 @@ fn find_rc_file_none_exist() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn install_hook_appends_guarded_block() {
-    let dir = tmp_dir("install_basic");
+fn install_hook_bash_writes_eval_block() {
+    let dir = tmp_dir("install_bash");
     let rc = dir.join(".bashrc");
     fs::write(&rc, "# existing content\n").unwrap();
-    let hook_path = dir.join("hook/cmdlog.bash");
-    fs::create_dir_all(dir.join("hook")).unwrap();
-    fs::write(&hook_path, "# hook\n").unwrap();
 
-    let result = install_hook(&rc, &hook_path);
+    let result = install_hook(&rc, "bash", &dir);
     assert!(result.is_ok());
 
     let content = fs::read_to_string(&rc).unwrap();
     assert!(content.contains("# existing content"));
     assert!(content.contains("# >>> cmdlog >>>"));
-    assert!(content.contains("source "));
-    assert!(content.contains("hook/cmdlog.bash"));
+    assert!(content.contains("eval \""));
+    assert!(content.contains("cmdlog hook bash"));
+    assert!(content.contains("alias cl='cmdlog list'"));
+    assert!(content.contains("export CMDLOG_TZ"));
     assert!(content.contains("# <<< cmdlog <<<"));
+    // bash should NOT use the source-form
+    assert!(!content.contains("\nsource "));
+
+    cleanup(&dir);
+}
+
+#[test]
+fn install_hook_zsh_writes_eval_block() {
+    let dir = tmp_dir("install_zsh");
+    let rc = dir.join(".zshrc");
+    fs::write(&rc, "").unwrap();
+
+    let result = install_hook(&rc, "zsh", &dir);
+    assert!(result.is_ok());
+
+    let content = fs::read_to_string(&rc).unwrap();
+    assert!(content.contains("eval \""));
+    assert!(content.contains("cmdlog hook zsh"));
+
+    cleanup(&dir);
+}
+
+#[test]
+fn install_hook_tcsh_writes_source_block() {
+    // tcsh can't eval embedded source — backtick collapses newlines —
+    // so the rc block sources the file extracted by `write_tcsh_hook`.
+    let dir = tmp_dir("install_tcsh");
+    let rc = dir.join(".tcshrc");
+    fs::write(&rc, "# tcshrc\n").unwrap();
+
+    let result = install_hook(&rc, "tcsh", &dir);
+    assert!(result.is_ok());
+
+    let content = fs::read_to_string(&rc).unwrap();
+    assert!(content.contains("\nsource "));
+    assert!(content.contains("cmdlog.tcsh"));
+    assert!(!content.contains("eval"), "tcsh must not use eval form");
+    assert!(content.contains("alias cl 'cmdlog list'"));
+    assert!(content.contains("setenv CMDLOG_TZ"));
+    assert!(!content.contains("export CMDLOG_TZ"));
 
     cleanup(&dir);
 }
@@ -83,11 +122,8 @@ fn install_hook_fails_if_guard_present() {
     let dir = tmp_dir("install_guard");
     let rc = dir.join(".bashrc");
     fs::write(&rc, "# stuff\n# >>> cmdlog >>>\nsource foo\n# <<< cmdlog <<<\n").unwrap();
-    let hook_path = dir.join("hook/cmdlog.bash");
-    fs::create_dir_all(dir.join("hook")).unwrap();
-    fs::write(&hook_path, "# hook\n").unwrap();
 
-    let result = install_hook(&rc, &hook_path);
+    let result = install_hook(&rc, "bash", &dir);
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("already present"));
 
@@ -96,14 +132,13 @@ fn install_hook_fails_if_guard_present() {
 
 #[test]
 fn install_hook_fails_if_manual_source_present() {
-    let dir = tmp_dir("install_manual");
+    // Legacy users may have a manual `source .../cmdlog.bash` line predating
+    // the eval transition. install_hook should still detect and refuse.
+    let dir = tmp_dir("install_manual_src");
     let rc = dir.join(".bashrc");
     fs::write(&rc, "source /some/path/hook/cmdlog.bash\n").unwrap();
-    let hook_path = dir.join("hook/cmdlog.bash");
-    fs::create_dir_all(dir.join("hook")).unwrap();
-    fs::write(&hook_path, "# hook\n").unwrap();
 
-    let result = install_hook(&rc, &hook_path);
+    let result = install_hook(&rc, "bash", &dir);
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("already present"));
 
@@ -111,24 +146,52 @@ fn install_hook_fails_if_manual_source_present() {
 }
 
 #[test]
-fn install_hook_tcsh_uses_csh_syntax() {
-    let dir = tmp_dir("install_tcsh");
-    let rc = dir.join(".tcshrc");
-    fs::write(&rc, "# tcshrc\n").unwrap();
-    let hook_path = dir.join("hook/cmdlog.tcsh");
-    fs::create_dir_all(dir.join("hook")).unwrap();
-    fs::write(&hook_path, "# hook\n").unwrap();
+fn install_hook_fails_if_manual_eval_present() {
+    let dir = tmp_dir("install_manual_eval");
+    let rc = dir.join(".bashrc");
+    fs::write(&rc, "eval \"$(cmdlog hook bash)\"\n").unwrap();
 
-    let result = install_hook(&rc, &hook_path);
-    assert!(result.is_ok());
-
-    let content = fs::read_to_string(&rc).unwrap();
-    assert!(content.contains("\nsource "));
-    assert!(content.contains("alias cl 'cmdlog list'"));
-    assert!(content.contains("setenv CMDLOG_TZ"));
-    assert!(!content.contains("export CMDLOG_TZ"));
+    let result = install_hook(&rc, "bash", &dir);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("already present"));
 
     cleanup(&dir);
+}
+
+#[test]
+fn install_hook_ignores_commented_marker() {
+    let dir = tmp_dir("install_comment");
+    let rc = dir.join(".bashrc");
+    fs::write(&rc, "# eval \"$(cmdlog hook bash)\" -- legacy doc\n").unwrap();
+
+    let result = install_hook(&rc, "bash", &dir);
+    assert!(result.is_ok(), "commented marker must not block install");
+
+    cleanup(&dir);
+}
+
+// ---------------------------------------------------------------------------
+// write_tcsh_hook — extract embedded tcsh source to canonical path
+// ---------------------------------------------------------------------------
+
+#[test]
+fn write_tcsh_hook_creates_file_at_canonical_path() {
+    let home = tmp_dir("tcsh_extract");
+    let path = write_tcsh_hook(&home).expect("write_tcsh_hook should succeed");
+    assert_eq!(path, tcsh_hook_path(&home));
+    assert!(path.exists());
+    let written = fs::read_to_string(&path).unwrap();
+    assert_eq!(written, hook_source("tcsh").unwrap(),
+               "extracted file must match embedded source byte-for-byte");
+    cleanup(&home);
+}
+
+#[test]
+fn tcsh_hook_path_is_under_share_cmdlog() {
+    let home = std::path::PathBuf::from("/home/test");
+    let path = tcsh_hook_path(&home);
+    assert!(path.starts_with("/home/test/.local/share/cmdlog"));
+    assert!(path.to_str().unwrap().ends_with("cmdlog.tcsh"));
 }
 
 // ---------------------------------------------------------------------------

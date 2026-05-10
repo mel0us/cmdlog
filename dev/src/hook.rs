@@ -23,16 +23,6 @@ pub fn rc_candidates(shell: &str, home: &Path) -> Vec<PathBuf> {
     }
 }
 
-/// Return the hook filename for a given shell.
-pub fn hook_filename(shell: &str) -> &'static str {
-    match shell {
-        "bash" => "cmdlog.bash",
-        "zsh" => "cmdlog.zsh",
-        "tcsh" => "cmdlog.tcsh",
-        _ => "",
-    }
-}
-
 /// Hook source files embedded at build time. Single source of truth: the
 /// on-disk `hook/cmdlog.<shell>` files used by `source`-style installs are
 /// the same bytes the `cmdlog hook <shell>` subcommand emits.
@@ -50,12 +40,45 @@ pub fn hook_source(shell: &str) -> Option<&'static str> {
     }
 }
 
-/// Install a hook into an rc file. Appends a guarded source block.
-pub fn install_hook(rc_path: &Path, hook_path: &Path) -> Result<(), String> {
+/// Canonical on-disk path for the tcsh hook (extracted from embedded source
+/// at install time). bash/zsh don't need a file since `eval "$(cmdlog hook
+/// <shell>)"` reads embedded bytes directly.
+pub fn tcsh_hook_path(home: &Path) -> PathBuf {
+    home.join(".local/share/cmdlog/cmdlog.tcsh")
+}
+
+/// Write the embedded tcsh hook source to its canonical install path.
+pub fn write_tcsh_hook(home: &Path) -> Result<PathBuf, String> {
+    let path = tcsh_hook_path(home);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Cannot create {}: {}", parent.display(), e))?;
+    }
+    let src = hook_source("tcsh").expect("tcsh hook always embedded");
+    fs::write(&path, src)
+        .map_err(|e| format!("Cannot write {}: {}", path.display(), e))?;
+    Ok(path)
+}
+
+/// Build the rc-file integration line for a shell. bash/zsh use eval over
+/// `cmdlog hook`, tcsh sources the extracted file (backtick command
+/// substitution collapses newlines, defeating eval).
+fn integration_line(shell: &str, home: &Path) -> String {
+    let bin = home.join(".local/bin/cmdlog");
+    match shell {
+        "bash" | "zsh" => format!("eval \"$({} hook {})\"", bin.display(), shell),
+        "tcsh" => format!("source {}", tcsh_hook_path(home).display()),
+        _ => String::new(),
+    }
+}
+
+/// Install a hook into an rc file. Appends a guarded block that wires the
+/// embedded hook into the shell — eval-based for bash/zsh, source-based for
+/// tcsh (see `integration_line`).
+pub fn install_hook(rc_path: &Path, shell: &str, home: &Path) -> Result<(), String> {
     let content = fs::read_to_string(rc_path)
         .map_err(|e| format!("Cannot read {}: {}", rc_path.display(), e))?;
 
-    // Check for existing guarded block
     if content.contains(GUARD_BEGIN) {
         return Err(format!(
             "cmdlog hook already present in {}.",
@@ -63,15 +86,18 @@ pub fn install_hook(rc_path: &Path, hook_path: &Path) -> Result<(), String> {
         ));
     }
 
-    // Check for manual source line containing hook filename
-    let hook_name = hook_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("");
-    let hook_marker = format!("hook/{}", hook_name);
+    // Reject any pre-existing manual install (eval form, source form, or
+    // legacy path under hook/).
+    let markers = [
+        format!("cmdlog hook {}", shell),
+        format!("cmdlog.{}", shell),
+    ];
     for line in content.lines() {
         let trimmed = line.trim();
-        if trimmed.contains(&hook_marker) && !trimmed.starts_with('#') {
+        if trimmed.starts_with('#') {
+            continue;
+        }
+        if markers.iter().any(|m| trimmed.contains(m.as_str())) {
             return Err(format!(
                 "cmdlog hook already present in {}.",
                 rc_path.display()
@@ -79,8 +105,7 @@ pub fn install_hook(rc_path: &Path, hook_path: &Path) -> Result<(), String> {
         }
     }
 
-    // tcsh/csh use a different alias and setenv syntax.
-    let is_csh = hook_name.ends_with(".tcsh") || hook_name.ends_with(".csh");
+    let is_csh = shell == "tcsh";
     let (alias_line, tz_line) = if is_csh {
         ("alias cl 'cmdlog list'", "setenv CMDLOG_TZ +8")
     } else {
@@ -88,9 +113,9 @@ pub fn install_hook(rc_path: &Path, hook_path: &Path) -> Result<(), String> {
     };
 
     let block = format!(
-        "\n{}\nsource {}\n{}\n{}\n{}\n",
+        "\n{}\n{}\n{}\n{}\n{}\n",
         GUARD_BEGIN,
-        hook_path.to_string_lossy(),
+        integration_line(shell, home),
         alias_line,
         tz_line,
         GUARD_END,
