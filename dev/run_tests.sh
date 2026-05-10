@@ -859,21 +859,31 @@ section "E2E: exit code with precmd chaining (zsh)"
 # --------------------------------------------------------------------------
 
 rm -f $CMDLOG_DIR/.cmdlog.tsv
-zsh --no-rcs -i << ZSESSION 2>/dev/null
-HISTSIZE=1000
-SAVEHIST=0
-
-# Simulate another tool's precmd
-__other_tool_precmd() { true; }
-precmd_functions=(__other_tool_precmd)
-
-# Source cmdlog — it prepends
-source $CMDLOG_DIR/hook/cmdlog.zsh
-
-ls /nonexistent_cmdlog_zsh_chain_12345
-git --version
-exit
-ZSESSION
+# zsh's precmd doesn't reliably fire when stdout/stderr is a regular file or
+# /dev/null — it skips prompt cycles. Use expect to provide a pty, which makes
+# precmd fire as it would in a real interactive session.
+expect -c "
+    log_user 0
+    set timeout 5
+    spawn -noecho zsh --no-rcs -i
+    expect -re {[>$%#]}
+    send \"HISTSIZE=1000\r\"
+    expect -re {[>$%#]}
+    send \"SAVEHIST=0\r\"
+    expect -re {[>$%#]}
+    send \"__other_tool_precmd() { true; }\r\"
+    expect -re {[>$%#]}
+    send \"precmd_functions=(__other_tool_precmd)\r\"
+    expect -re {[>$%#]}
+    send \"source $CMDLOG_DIR/hook/cmdlog.zsh\r\"
+    expect -re {[>$%#]}
+    send \"ls /nonexistent_cmdlog_zsh_chain_12345\r\"
+    expect -re {[>$%#]}
+    send \"git --version\r\"
+    expect -re {[>$%#]}
+    send \"exit\r\"
+    expect eof
+" >/dev/null 2>&1
 
 ec=$(grep 'ls /nonexistent_cmdlog_zsh' $CMDLOG_DIR/.cmdlog.tsv | awk -F'\t' '{print $4}')
 [[ "$ec" != "0" && -n "$ec" ]] && pass "zsh chaining: failure exit code captured ($ec)" || fail "zsh chaining: failure exit code was $ec"
