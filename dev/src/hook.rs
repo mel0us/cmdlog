@@ -44,7 +44,7 @@ pub fn hook_source(shell: &str) -> Option<&'static str> {
 /// at install time). bash/zsh don't need a file since `eval "$(cmdlog hook
 /// <shell>)"` reads embedded bytes directly.
 pub fn tcsh_hook_path(home: &Path) -> PathBuf {
-    home.join(".local/share/cmdlog/cmdlog.tcsh")
+    home.join(".local/share/cmdlog/hook/cmdlog.tcsh")
 }
 
 /// Write the embedded tcsh hook source to its canonical install path.

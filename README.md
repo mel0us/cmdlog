@@ -60,13 +60,13 @@ hook files to copy.
 |-------|---------|------------|
 | bash  | `~/.bashrc` | `eval "$(~/.local/bin/cmdlog hook bash)"` |
 | zsh   | `~/.zshrc`  | `eval "$(~/.local/bin/cmdlog hook zsh)"`  |
-| tcsh  | `~/.tcshrc` (or `~/.cshrc`) | `source ~/.local/share/cmdlog/cmdlog.tcsh` |
+| tcsh  | `~/.tcshrc` (or `~/.cshrc`) | `source ~/.local/share/cmdlog/hook/cmdlog.tcsh` |
 
 bash and zsh evaluate the hook source printed by `cmdlog hook <shell>` at
 shell startup, so the hook always matches the installed binary. tcsh's
 backtick substitution collapses newlines and breaks eval, so `cmdlog install
-tcsh` extracts the embedded hook to `~/.local/share/cmdlog/cmdlog.tcsh` and
-sources that file.
+tcsh` extracts the embedded hook to `~/.local/share/cmdlog/hook/cmdlog.tcsh`
+and sources that file.
 
 Re-runs are detected and refused (both eval and legacy source forms). To
 remove: `cmdlog uninstall <shell>`.

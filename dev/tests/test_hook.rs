@@ -187,11 +187,13 @@ fn write_tcsh_hook_creates_file_at_canonical_path() {
 }
 
 #[test]
-fn tcsh_hook_path_is_under_share_cmdlog() {
+fn tcsh_hook_path_is_under_share_cmdlog_hook() {
     let home = std::path::PathBuf::from("/home/test");
     let path = tcsh_hook_path(&home);
-    assert!(path.starts_with("/home/test/.local/share/cmdlog"));
-    assert!(path.to_str().unwrap().ends_with("cmdlog.tcsh"));
+    assert_eq!(
+        path,
+        std::path::PathBuf::from("/home/test/.local/share/cmdlog/hook/cmdlog.tcsh")
+    );
 }
 
 // ---------------------------------------------------------------------------
