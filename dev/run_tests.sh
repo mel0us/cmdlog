@@ -14,10 +14,8 @@ CMDLOG_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 CMDLOG="$CMDLOG_DIR/cmdlog"
 CARGO="${CARGO:-$(command -v cargo 2>/dev/null || echo cargo)}"
 
-# Point CMDLOG_FILE at the test log file so record/list use this path
-export CMDLOG_FILE="$CMDLOG_DIR/.cmdlog.tsv"
-
-# Use temp HOME to isolate from user's real config
+# Use temp HOME to isolate from user's real config and from the user's
+# real ~/.cmdlog.tsv (the binary defaults log path to $HOME/.cmdlog.tsv).
 ORIG_HOME="$HOME"
 TEST_HOME=$(mktemp -d)
 export HOME="$TEST_HOME"
@@ -109,60 +107,60 @@ out=$(zsh --no-rcs -c "source $CMDLOG_DIR/hook/cmdlog.zsh 2>/dev/null; whence __
 section "Record: builtin detection"
 # --------------------------------------------------------------------------
 
-rm -f $CMDLOG_DIR/.cmdlog.tsv
+rm -f $HOME/.cmdlog.tsv
 for cmd in "cd /tmp" "echo hello" "pwd" "export FOO=bar" "set +x" "local x=1" \
            "alias ll=ls" "source ~/.bashrc" "return 0" "typeset -A arr"; do
     $CMDLOG record bash /test 0 "$cmd"
 done
-n=$(wc -l < $CMDLOG_DIR/.cmdlog.tsv 2>/dev/null || echo 0)
+n=$(wc -l < $HOME/.cmdlog.tsv 2>/dev/null || echo 0)
 [[ "$n" -eq 0 ]] && pass "builtins: all 10 builtin commands skipped" || fail "builtins: $n commands logged (expected 0)"
 
 # --------------------------------------------------------------------------
 section "Record: formerly waived commands now recorded"
 # --------------------------------------------------------------------------
 
-rm -f $CMDLOG_DIR/.cmdlog.tsv
+rm -f $HOME/.cmdlog.tsv
 for cmd in "ls -la" "grep -rn TODO ." "cat file.txt" "sort data.csv" \
            "man bash" "less README.md" "find . -name '*.py'" "head -20 log"; do
     $CMDLOG record bash /test 0 "$cmd"
 done
-n=$(wc -l < $CMDLOG_DIR/.cmdlog.tsv 2>/dev/null || echo 0)
+n=$(wc -l < $HOME/.cmdlog.tsv 2>/dev/null || echo 0)
 [[ "$n" -eq 8 ]] && pass "record: all 8 formerly-waived commands now recorded" || fail "record: $n commands logged (expected 8)"
 
 # --------------------------------------------------------------------------
 section "Record: external commands logged"
 # --------------------------------------------------------------------------
 
-rm -f $CMDLOG_DIR/.cmdlog.tsv
+rm -f $HOME/.cmdlog.tsv
 for cmd in "git status" "python3 script.py" "make -j8" "ssh server uname" "cmake -B build"; do
     $CMDLOG record bash /test 0 "$cmd"
 done
-n=$(wc -l < $CMDLOG_DIR/.cmdlog.tsv 2>/dev/null || echo 0)
+n=$(wc -l < $HOME/.cmdlog.tsv 2>/dev/null || echo 0)
 [[ "$n" -eq 5 ]] && pass "external: all 5 commands logged" || fail "external: $n commands logged (expected 5)"
 
 # --------------------------------------------------------------------------
 section "Record: pipe override"
 # --------------------------------------------------------------------------
 
-rm -f $CMDLOG_DIR/.cmdlog.tsv
+rm -f $HOME/.cmdlog.tsv
 $CMDLOG record bash /test 0 "echo hello | tr a b"         # builtin + pipe → LOG
 $CMDLOG record bash /test 0 "cat f | grep x | wc -l"       # waived + pipe → LOG
 $CMDLOG record bash /test 0 "ls -la | head"                 # waived + pipe → LOG
-n=$(wc -l < $CMDLOG_DIR/.cmdlog.tsv 2>/dev/null || echo 0)
+n=$(wc -l < $HOME/.cmdlog.tsv 2>/dev/null || echo 0)
 [[ "$n" -eq 3 ]] && pass "pipe: all 3 pipe commands logged (override)" || fail "pipe: $n commands logged (expected 3)"
 
 # --------------------------------------------------------------------------
 section "Record: deduplication"
 # --------------------------------------------------------------------------
 
-rm -f $CMDLOG_DIR/.cmdlog.tsv
+rm -f $HOME/.cmdlog.tsv
 $CMDLOG record bash /test 0 "git status"
 $CMDLOG record bash /test 0 "git status"
 $CMDLOG record bash /test 0 "git status"
 $CMDLOG record bash /test 0 "make -j8"
 $CMDLOG record bash /test 0 "make -j8"
 # Record writes all 5 entries (no record-time dedup)
-n=$(wc -l < $CMDLOG_DIR/.cmdlog.tsv 2>/dev/null || echo 0)
+n=$(wc -l < $HOME/.cmdlog.tsv 2>/dev/null || echo 0)
 [[ "$n" -eq 5 ]] && pass "dedup: all 5 entries written (no record-time dedup)" || fail "dedup: $n entries (expected 5)"
 
 # Load-time dedup collapses consecutive duplicates
@@ -178,22 +176,22 @@ n=$($CMDLOG list --no-color -a | wc -l)
 section "Record: shell type in log"
 # --------------------------------------------------------------------------
 
-rm -f $CMDLOG_DIR/.cmdlog.tsv
+rm -f $HOME/.cmdlog.tsv
 $CMDLOG record bash /test 0 "git status"
 $CMDLOG record zsh /test 0 "python3 foo.py"
 $CMDLOG record tcsh /test 0 "ssh server"
-n_bash=$(gcount 'bash' $CMDLOG_DIR/.cmdlog.tsv)
-n_zsh=$(gcount 'zsh' $CMDLOG_DIR/.cmdlog.tsv)
-n_tcsh=$(gcount 'tcsh' $CMDLOG_DIR/.cmdlog.tsv)
+n_bash=$(gcount 'bash' $HOME/.cmdlog.tsv)
+n_zsh=$(gcount 'zsh' $HOME/.cmdlog.tsv)
+n_tcsh=$(gcount 'tcsh' $HOME/.cmdlog.tsv)
 [[ "$n_bash" -eq 1 && "$n_zsh" -eq 1 && "$n_tcsh" -eq 1 ]] && pass "shell type: bash/zsh/tcsh all recorded" || fail "shell type mismatch: bash=$n_bash zsh=$n_zsh tcsh=$n_tcsh"
 
 # --------------------------------------------------------------------------
 section "Record: TSV format"
 # --------------------------------------------------------------------------
 
-rm -f $CMDLOG_DIR/.cmdlog.tsv
+rm -f $HOME/.cmdlog.tsv
 $CMDLOG record bash /home/edwardc 0 "git push origin main"
-line=$(cat $CMDLOG_DIR/.cmdlog.tsv)
+line=$(cat $HOME/.cmdlog.tsv)
 bad=$(echo "$line" | grep -cvP '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\tbash\t/home/edwardc\t0\tgit push origin main$' || true)
 [[ "$bad" -eq 0 ]] && pass "format: correct TSV (DATE\\tSHELL\\tPWD\\tEXIT_CODE\\tCMD)" || fail "format: bad TSV: $line"
 
@@ -201,7 +199,7 @@ bad=$(echo "$line" | grep -cvP '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\tbash\t/hom
 section "List: query filters"
 # --------------------------------------------------------------------------
 
-cat > $CMDLOG_DIR/.cmdlog.tsv << 'DATA'
+cat > $HOME/.cmdlog.tsv << 'DATA'
 2026-04-05T09:15:00	bash	/home/edwardc/project-a	0	git status
 2026-04-05T09:16:30	bash	/home/edwardc/project-a	0	make -j8 all
 2026-04-05T10:00:00	zsh	/home/edwardc/project-b	0	python3 train.py --epochs 10
@@ -286,14 +284,14 @@ fi
 $CMDLOG list --help >/dev/null 2>&1 && pass "list: --help exits 0" || fail "list: --help failed"
 
 # Missing log
-mv $CMDLOG_DIR/.cmdlog.tsv $CMDLOG_DIR/.cmdlog.tsv.bak
+mv $HOME/.cmdlog.tsv $HOME/.cmdlog.tsv.bak
 out=$($CMDLOG list 2>&1)
 rc=$?
-mv $CMDLOG_DIR/.cmdlog.tsv.bak $CMDLOG_DIR/.cmdlog.tsv
+mv $HOME/.cmdlog.tsv.bak $HOME/.cmdlog.tsv
 [[ "$out" == "No matching entries." ]] && pass "list: missing log shows 'No matching entries.'" || fail "list: missing log output: '$out'"
 
 # Empty log
-> $CMDLOG_DIR/.cmdlog.tsv
+> $HOME/.cmdlog.tsv
 out=$($CMDLOG list 2>&1)
 [[ "$out" == "No matching entries." ]] && pass "list: empty log message" || fail "list: empty log output: '$out'"
 
@@ -313,19 +311,19 @@ pwd
 make --version
 BSESSION
 
-n=$(gcount 'git --version' $CMDLOG_DIR/.cmdlog.tsv)
+n=$(gcount 'git --version' $HOME/.cmdlog.tsv)
 [[ "$n" -ge 1 ]] && pass "e2e bash: 'git --version' recorded" || fail "e2e bash: 'git --version' not found"
 
-n=$(gcount 'make --version' $CMDLOG_DIR/.cmdlog.tsv)
+n=$(gcount 'make --version' $HOME/.cmdlog.tsv)
 [[ "$n" -ge 1 ]] && pass "e2e bash: 'make --version' recorded" || fail "e2e bash: 'make --version' not found"
 
-n=$(gcount 'cat /dev/null | head' $CMDLOG_DIR/.cmdlog.tsv)
+n=$(gcount 'cat /dev/null | head' $HOME/.cmdlog.tsv)
 [[ "$n" -ge 1 ]] && pass "e2e bash: pipe command recorded" || fail "e2e bash: pipe command not found"
 
-n=$(gcount 'cd /tmp' $CMDLOG_DIR/.cmdlog.tsv)
+n=$(gcount 'cd /tmp' $HOME/.cmdlog.tsv)
 [[ "$n" -eq 0 ]] && pass "e2e bash: 'cd /tmp' skipped (builtin)" || fail "e2e bash: 'cd /tmp' recorded"
 
-n=$(gcount '	ls -la' $CMDLOG_DIR/.cmdlog.tsv)
+n=$(gcount '	ls -la' $HOME/.cmdlog.tsv)
 [[ "$n" -ge 1 ]] && pass "e2e bash: 'ls -la' recorded (no record-time waive)" || fail "e2e bash: 'ls -la' not found"
 
 rm -f "$E2E_LOG"
@@ -334,7 +332,7 @@ rm -f "$E2E_LOG"
 section "E2E: zsh hook + binary"
 # --------------------------------------------------------------------------
 
-rm -f $CMDLOG_DIR/.cmdlog.tsv
+rm -f $HOME/.cmdlog.tsv
 zsh --no-rcs -i << ZSESSION 2>/dev/null
 HISTSIZE=1000
 SAVEHIST=0
@@ -349,19 +347,19 @@ make --version
 exit
 ZSESSION
 
-n=$(gcount 'git --version' $CMDLOG_DIR/.cmdlog.tsv)
+n=$(gcount 'git --version' $HOME/.cmdlog.tsv)
 [[ "$n" -ge 1 ]] && pass "e2e zsh: 'git --version' recorded" || fail "e2e zsh: 'git --version' not found"
 
-n=$(gcount 'make --version' $CMDLOG_DIR/.cmdlog.tsv)
+n=$(gcount 'make --version' $HOME/.cmdlog.tsv)
 [[ "$n" -ge 1 ]] && pass "e2e zsh: 'make --version' recorded" || fail "e2e zsh: 'make --version' not found"
 
-n=$(gcount 'cat /dev/null | head' $CMDLOG_DIR/.cmdlog.tsv)
+n=$(gcount 'cat /dev/null | head' $HOME/.cmdlog.tsv)
 [[ "$n" -ge 1 ]] && pass "e2e zsh: pipe command recorded" || fail "e2e zsh: pipe command not found"
 
-n=$(gcount 'cd /tmp' $CMDLOG_DIR/.cmdlog.tsv)
+n=$(gcount 'cd /tmp' $HOME/.cmdlog.tsv)
 [[ "$n" -eq 0 ]] && pass "e2e zsh: 'cd /tmp' skipped (builtin)" || fail "e2e zsh: 'cd /tmp' recorded"
 
-n=$(gcount '	ls -la' $CMDLOG_DIR/.cmdlog.tsv)
+n=$(gcount '	ls -la' $HOME/.cmdlog.tsv)
 [[ "$n" -ge 1 ]] && pass "e2e zsh: 'ls -la' recorded (no record-time waive)" || fail "e2e zsh: 'ls -la' not found"
 
 # --------------------------------------------------------------------------
@@ -369,32 +367,32 @@ section "E2E: tcsh hook logic + binary"
 # --------------------------------------------------------------------------
 
 # tcsh precmd only fires with a real tty. Simulate the precmd logic.
-rm -f $CMDLOG_DIR/.cmdlog.tsv
+rm -f $HOME/.cmdlog.tsv
 for cmd in "git --version" "cd /tmp" "ls -la" "echo hello" \
            "cat /dev/null | head" "pwd" "make --version"; do
     $CMDLOG record tcsh /test 0 "$cmd"
 done
 
-n=$(gcount 'git --version' $CMDLOG_DIR/.cmdlog.tsv)
+n=$(gcount 'git --version' $HOME/.cmdlog.tsv)
 [[ "$n" -ge 1 ]] && pass "e2e tcsh: 'git --version' recorded" || fail "e2e tcsh: 'git --version' not found"
 
-n=$(gcount 'make --version' $CMDLOG_DIR/.cmdlog.tsv)
+n=$(gcount 'make --version' $HOME/.cmdlog.tsv)
 [[ "$n" -ge 1 ]] && pass "e2e tcsh: 'make --version' recorded" || fail "e2e tcsh: 'make --version' not found"
 
-n=$(gcount 'cat /dev/null | head' $CMDLOG_DIR/.cmdlog.tsv)
+n=$(gcount 'cat /dev/null | head' $HOME/.cmdlog.tsv)
 [[ "$n" -ge 1 ]] && pass "e2e tcsh: pipe command recorded" || fail "e2e tcsh: pipe command not found"
 
-n=$(gcount 'cd /tmp' $CMDLOG_DIR/.cmdlog.tsv)
+n=$(gcount 'cd /tmp' $HOME/.cmdlog.tsv)
 [[ "$n" -eq 0 ]] && pass "e2e tcsh: 'cd /tmp' skipped (builtin)" || fail "e2e tcsh: 'cd /tmp' recorded"
 
-n=$(gcount '	ls -la' $CMDLOG_DIR/.cmdlog.tsv)
+n=$(gcount '	ls -la' $HOME/.cmdlog.tsv)
 [[ "$n" -ge 1 ]] && pass "e2e tcsh: 'ls -la' recorded (no record-time waive)" || fail "e2e tcsh: 'ls -la' not found"
 
 # --------------------------------------------------------------------------
 section "List: waive filtering at display time"
 # --------------------------------------------------------------------------
 
-rm -f $CMDLOG_DIR/.cmdlog.tsv
+rm -f $HOME/.cmdlog.tsv
 # Write config with waive list to test HOME
 cat > "$HOME/.cmdlog.conf" << 'CONF'
 [waive]
@@ -433,7 +431,7 @@ out=$(tcsh -c "set prompt=x; source $CMDLOG_DIR/hook/cmdlog.tcsh; alias cmdlog" 
 section "TUI: non-interactive fallback"
 # --------------------------------------------------------------------------
 
-cat > $CMDLOG_DIR/.cmdlog.tsv << 'DATA'
+cat > $HOME/.cmdlog.tsv << 'DATA'
 2026-04-06T08:00:00	bash	/home/edwardc/project-a	0	git pull origin main
 2026-04-06T09:00:00	zsh	/home/edwardc/project-b	0	docker compose up -d
 2026-04-06T10:00:00	bash	/home/edwardc/project-a	0	pytest tests/ -v
@@ -471,8 +469,6 @@ for subcmd_label in "help:cmdlog help" "--badarg:cmdlog --badarg" "record:cmdlog
         set timeout 5
         spawn /usr/bin/tcsh -f -i
         expect -re {[>$%#]}
-        send \"set __cmdlog_dir = $CMDLOG_DIR\r\"
-        expect -re {[>$%#]}
         send \"source $CMDLOG_DIR/hook/cmdlog.tcsh\r\"
         expect -re {[>$%#]}
         send \"$cmd\r\"
@@ -497,8 +493,6 @@ result=$(expect -c "
     set timeout 5
     spawn /usr/bin/tcsh -f -i
     expect -re {[>$%#]}
-    send \"set __cmdlog_dir = $CMDLOG_DIR\r\"
-    expect -re {[>$%#]}
     send \"source $CMDLOG_DIR/hook/cmdlog.tcsh\r\"
     expect {
         -re {[>$%#]} { puts OK }
@@ -513,15 +507,11 @@ result=$(expect -c "
 section "Interactive: tcsh precmd records commands (expect)"
 # --------------------------------------------------------------------------
 
-rm -f "$CMDLOG_DIR/.cmdlog.tsv"
+rm -f "$HOME/.cmdlog.tsv"
 expect -c "
     log_user 0
     set timeout 5
     spawn /usr/bin/tcsh -f -i
-    expect -re {[>$%#]}
-    send \"setenv CMDLOG_FILE $CMDLOG_DIR/.cmdlog.tsv\r\"
-    expect -re {[>$%#]}
-    send \"set __cmdlog_dir = $CMDLOG_DIR\r\"
     expect -re {[>$%#]}
     send \"source $CMDLOG_DIR/hook/cmdlog.tcsh\r\"
     expect -re {[>$%#]}
@@ -533,10 +523,10 @@ expect -c "
     expect eof
 " 2>/dev/null
 
-n=$(gcount 'git --version' "$CMDLOG_DIR/.cmdlog.tsv")
+n=$(gcount 'git --version' "$HOME/.cmdlog.tsv")
 [[ "$n" -ge 1 ]] && pass "tcsh precmd: 'git --version' recorded via precmd" || fail "tcsh precmd: 'git --version' not found"
 
-n=$(gcount 'make --version' "$CMDLOG_DIR/.cmdlog.tsv")
+n=$(gcount 'make --version' "$HOME/.cmdlog.tsv")
 [[ "$n" -ge 1 ]] && pass "tcsh precmd: 'make --version' recorded via precmd" || fail "tcsh precmd: 'make --version' not found"
 
 # --------------------------------------------------------------------------
@@ -817,24 +807,24 @@ result=$(expect -c "
 section "E2E: exit code recording (bash)"
 # --------------------------------------------------------------------------
 
-rm -f $CMDLOG_DIR/.cmdlog.tsv
+rm -f $HOME/.cmdlog.tsv
 bash --norc --noprofile -i << BSESSION 2>/dev/null
 source $CMDLOG_DIR/hook/cmdlog.bash
 git --version
 ls /nonexistent_cmdlog_test_path_12345
 BSESSION
 
-ec=$(grep 'git --version' $CMDLOG_DIR/.cmdlog.tsv | awk -F'\t' '{print $4}')
+ec=$(grep 'git --version' $HOME/.cmdlog.tsv | awk -F'\t' '{print $4}')
 [[ "$ec" == "0" ]] && pass "exit code: success recorded as 0" || fail "exit code: success recorded as $ec"
 
-ec=$(grep 'ls /nonexistent' $CMDLOG_DIR/.cmdlog.tsv | awk -F'\t' '{print $4}')
+ec=$(grep 'ls /nonexistent' $HOME/.cmdlog.tsv | awk -F'\t' '{print $4}')
 [[ "$ec" != "0" && -n "$ec" ]] && pass "exit code: failure recorded as non-zero ($ec)" || fail "exit code: failure recorded as $ec"
 
 # --------------------------------------------------------------------------
 section "E2E: exit code with PROMPT_COMMAND chaining (bash)"
 # --------------------------------------------------------------------------
 
-rm -f $CMDLOG_DIR/.cmdlog.tsv
+rm -f $HOME/.cmdlog.tsv
 bash --norc --noprofile -i << BSESSION 2>/dev/null
 # Simulate another tool's PROMPT_COMMAND
 __other_tool_hook() { /bin/true; }
@@ -848,17 +838,17 @@ ls /nonexistent_cmdlog_chain_test_12345
 git --version
 BSESSION
 
-ec=$(grep 'ls /nonexistent_cmdlog_chain' $CMDLOG_DIR/.cmdlog.tsv | awk -F'\t' '{print $4}')
+ec=$(grep 'ls /nonexistent_cmdlog_chain' $HOME/.cmdlog.tsv | awk -F'\t' '{print $4}')
 [[ "$ec" != "0" && -n "$ec" ]] && pass "bash chaining: failure exit code captured ($ec)" || fail "bash chaining: failure exit code was $ec"
 
-ec=$(grep 'git --version' $CMDLOG_DIR/.cmdlog.tsv | awk -F'\t' '{print $4}')
+ec=$(grep 'git --version' $HOME/.cmdlog.tsv | awk -F'\t' '{print $4}')
 [[ "$ec" == "0" ]] && pass "bash chaining: success exit code captured" || fail "bash chaining: success exit code was $ec"
 
 # --------------------------------------------------------------------------
 section "E2E: exit code with precmd chaining (zsh)"
 # --------------------------------------------------------------------------
 
-rm -f $CMDLOG_DIR/.cmdlog.tsv
+rm -f $HOME/.cmdlog.tsv
 # zsh's precmd doesn't reliably fire when stdout/stderr is a regular file or
 # /dev/null — it skips prompt cycles. Use expect to provide a pty, which makes
 # precmd fire as it would in a real interactive session.
@@ -885,10 +875,10 @@ expect -c "
     expect eof
 " >/dev/null 2>&1
 
-ec=$(grep 'ls /nonexistent_cmdlog_zsh' $CMDLOG_DIR/.cmdlog.tsv | awk -F'\t' '{print $4}')
+ec=$(grep 'ls /nonexistent_cmdlog_zsh' $HOME/.cmdlog.tsv | awk -F'\t' '{print $4}')
 [[ "$ec" != "0" && -n "$ec" ]] && pass "zsh chaining: failure exit code captured ($ec)" || fail "zsh chaining: failure exit code was $ec"
 
-ec=$(grep 'git --version' $CMDLOG_DIR/.cmdlog.tsv | awk -F'\t' '{print $4}')
+ec=$(grep 'git --version' $HOME/.cmdlog.tsv | awk -F'\t' '{print $4}')
 [[ "$ec" == "0" ]] && pass "zsh chaining: success exit code captured" || fail "zsh chaining: success exit code was $ec"
 
 # Cleanup temp HOME
