@@ -22,8 +22,8 @@ fn cleanup(dir: &PathBuf) {
 #[test]
 fn find_rc_file_returns_first_existing() {
     let dir = tmp_dir("rc_first");
-    let rc1 = dir.join(".bashrc_custom");
-    let rc2 = dir.join(".bashrc");
+    let rc1 = dir.join("rc_a");
+    let rc2 = dir.join("rc_b");
     fs::write(&rc2, "# bashrc\n").unwrap();
     let result = find_rc_file(&[rc1.clone(), rc2.clone()]);
     assert_eq!(result, Some(rc2));
@@ -33,8 +33,8 @@ fn find_rc_file_returns_first_existing() {
 #[test]
 fn find_rc_file_prefers_first() {
     let dir = tmp_dir("rc_prefer");
-    let rc1 = dir.join(".bashrc_custom");
-    let rc2 = dir.join(".bashrc");
+    let rc1 = dir.join("rc_a");
+    let rc2 = dir.join("rc_b");
     fs::write(&rc1, "# custom\n").unwrap();
     fs::write(&rc2, "# bashrc\n").unwrap();
     let result = find_rc_file(&[rc1.clone(), rc2.clone()]);
@@ -45,8 +45,8 @@ fn find_rc_file_prefers_first() {
 #[test]
 fn find_rc_file_none_exist() {
     let dir = tmp_dir("rc_none");
-    let rc1 = dir.join(".bashrc_custom");
-    let rc2 = dir.join(".bashrc");
+    let rc1 = dir.join("rc_a");
+    let rc2 = dir.join("rc_b");
     let result = find_rc_file(&[rc1, rc2]);
     assert_eq!(result, None);
     cleanup(&dir);

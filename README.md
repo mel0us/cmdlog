@@ -55,11 +55,11 @@ and symlink the binary into `~/.local/bin/cmdlog`.
 `# <<< cmdlog <<<`) containing `source ~/.local/share/cmdlog/hook/cmdlog.<shell>`
 into the first existing rc candidate:
 
-| Shell | rc candidates (first match wins) |
-|-------|----------------------------------|
-| bash  | `~/.bashrc_custom`, `~/.bashrc` |
-| zsh   | `~/.zshrc_custom`, `~/.zshrc` |
-| tcsh  | `~/.tcshrc_custom`, `~/.tcshrc`, `~/.cshrc_custom`, `~/.cshrc` |
+| Shell | rc file |
+|-------|---------|
+| bash  | `~/.bashrc` |
+| zsh   | `~/.zshrc` |
+| tcsh  | `~/.tcshrc` (or `~/.cshrc` if `~/.tcshrc` doesn't exist) |
 
 Re-runs are detected and refused. To remove: `cmdlog uninstall <shell>`.
 

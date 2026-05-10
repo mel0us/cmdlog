@@ -16,20 +16,9 @@ pub fn find_rc_file(candidates: &[PathBuf]) -> Option<PathBuf> {
 /// Return the rc file candidates for a given shell, rooted at `home`.
 pub fn rc_candidates(shell: &str, home: &Path) -> Vec<PathBuf> {
     match shell {
-        "bash" => vec![
-            home.join(".bashrc_custom"),
-            home.join(".bashrc"),
-        ],
-        "zsh" => vec![
-            home.join(".zshrc_custom"),
-            home.join(".zshrc"),
-        ],
-        "tcsh" => vec![
-            home.join(".tcshrc_custom"),
-            home.join(".tcshrc"),
-            home.join(".cshrc_custom"),
-            home.join(".cshrc"),
-        ],
+        "bash" => vec![home.join(".bashrc")],
+        "zsh"  => vec![home.join(".zshrc")],
+        "tcsh" => vec![home.join(".tcshrc"), home.join(".cshrc")],
         _ => vec![],
     }
 }
