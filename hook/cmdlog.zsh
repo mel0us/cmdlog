@@ -9,26 +9,28 @@
 
 typeset -g __CMDLOG_BIN="$HOME/.local/bin/cmdlog"
 
-# Record function — always redefined on re-source (picks up new binary path)
+# Record function — always redefined on re-source (picks up new binary path).
+# Always returns the captured user exit code so downstream precmd_functions
+# observe the original $? rather than the binary's exit.
 __cmdlog_record() {
     local __cmdlog_ec=$?
     # Get the last history entry (fc is a builtin)
     local cmd
-    cmd=$(fc -ln -1) || return 0
+    cmd=$(fc -ln -1) || return "$__cmdlog_ec"
     cmd="${cmd#"${cmd%%[! ]*}"}"
     cmd="${cmd%"${cmd##*[! ]}"}"
-    [[ -n "$cmd" ]] || return 0
+    [[ -n "$cmd" ]] || return "$__cmdlog_ec"
 
     # Delegate all filtering to the binary
     "$__CMDLOG_BIN" record zsh "$PWD" "$__cmdlog_ec" "$cmd"
+    return "$__cmdlog_ec"
 }
 
 # Install as precmd hook (idempotent — safe on re-source).
-# precmd_functions is an array — robust against other tools.
+# Remove any prior entry, then prepend so we run first and capture the user's $?.
 (( ${+precmd_functions} )) || typeset -ga precmd_functions
-if (( ! ${precmd_functions[(Ie)__cmdlog_record]} )); then
-    precmd_functions=(__cmdlog_record "${precmd_functions[@]}")
-fi
+precmd_functions=("${(@)precmd_functions:#__cmdlog_record}")
+precmd_functions=(__cmdlog_record "${precmd_functions[@]}")
 
 # Wrapper function — always redefined on re-source (picks up new binary path)
 # Captures TUI selection and injects into edit buffer.

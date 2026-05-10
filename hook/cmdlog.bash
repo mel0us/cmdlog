@@ -9,21 +9,24 @@
 
 __CMDLOG_BIN="$HOME/.local/bin/cmdlog"
 
-# Record function — always redefined on re-source (picks up new binary path)
+# Record function — always redefined on re-source (picks up new binary path).
+# Always returns the captured user exit code so downstream PROMPT_COMMAND
+# components observe the original $? rather than the binary's exit.
 __cmdlog_record() {
     local __cmdlog_ec=$?
     local hist
-    hist=$(builtin history 1) || return 0
+    hist=$(builtin history 1) || return "$__cmdlog_ec"
 
     # Extract command text (strip leading history number)
     local histnum="${hist%%[^0-9 ]*}"
     histnum="${histnum// /}"
     local cmd="${hist#*"${histnum}"}"
     cmd="${cmd#"${cmd%%[![:space:]]*}"}"
-    [[ -n "$cmd" ]] || return 0
+    [[ -n "$cmd" ]] || return "$__cmdlog_ec"
 
     # Delegate all filtering to the binary
     "$__CMDLOG_BIN" record bash "$PWD" "$__cmdlog_ec" "$cmd"
+    return "$__cmdlog_ec"
 }
 
 # Install into PROMPT_COMMAND (idempotent — safe on re-source).
