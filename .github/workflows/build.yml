@@ -54,6 +54,10 @@ jobs:
         working-directory: dev
         run: cargo build --release --target ${{ matrix.target }}
 
+      - name: Run cargo tests
+        working-directory: dev
+        run: cargo test --release --target ${{ matrix.target }}
+
       - name: Stage artifact
         run: |
           stage="cmdlog-${{ matrix.target }}"
@@ -70,10 +74,37 @@ jobs:
           path: dist/cmdlog-${{ matrix.target }}.tar.gz
           if-no-files-found: error
 
+  shell-tests:
+    name: shell tests (linux)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install shells
+        run: sudo apt-get update && sudo apt-get install -y zsh tcsh expect
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            dev/target
+          key: shell-tests-cargo-${{ hashFiles('dev/Cargo.lock') }}
+          restore-keys: |
+            shell-tests-cargo-
+
+      - name: Run test suite
+        working-directory: dev
+        run: ./run_tests.sh
+
   release:
     name: release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [build, shell-tests]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
