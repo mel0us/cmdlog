@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use cmdlog::tui::config::{init_config, load_config, load_inject_method, save_config, doctor_config, IssueKind};
+use cmdlog::tui::config::{default_inject_method, init_config, load_config, load_inject_method, save_config, doctor_config, IssueKind};
 use cmdlog::tui::state::{
     AppState, GroupDimension, OrderBadge, OrderDimension, ShowColumn, TimeMode,
 };
@@ -408,7 +408,7 @@ fn inject_defaults_when_no_config_file() {
     let path = dir.join(".cmdlog.conf");
     assert_eq!(load_inject_method(&path, "bash"), "readline");
     assert_eq!(load_inject_method(&path, "zsh"), "print-z");
-    assert_eq!(load_inject_method(&path, "tcsh"), "tiocsti");
+    assert_eq!(load_inject_method(&path, "tcsh"), default_inject_method("tcsh"));
     assert_eq!(load_inject_method(&path, "fish"), "history");
     cleanup(&dir);
 }
@@ -418,15 +418,16 @@ fn inject_defaults_when_no_inject_section() {
     let dir = tmp_dir("inject_no_section");
     let path = dir.join(".cmdlog.conf");
     fs::write(&path, "[show]\ntime = \"date\"\n").unwrap();
+    let tcsh_default = default_inject_method("tcsh");
     assert_eq!(load_inject_method(&path, "bash"), "readline");
     assert_eq!(load_inject_method(&path, "zsh"), "print-z");
-    assert_eq!(load_inject_method(&path, "tcsh"), "tiocsti");
+    assert_eq!(load_inject_method(&path, "tcsh"), tcsh_default);
     // Verify defaults were written back to config
     let content = fs::read_to_string(&path).unwrap();
     assert!(content.contains("[inject]"));
     assert!(content.contains("bash = \"readline\""));
     assert!(content.contains("zsh = \"print-z\""));
-    assert!(content.contains("tcsh = \"tiocsti\""));
+    assert!(content.contains(&format!("tcsh = \"{}\"", tcsh_default)));
     cleanup(&dir);
 }
 
@@ -507,14 +508,15 @@ fn inject_partial_section_uses_defaults_and_writes_back() {
     let dir = tmp_dir("inject_partial");
     let path = dir.join(".cmdlog.conf");
     fs::write(&path, "[inject]\nbash = \"tiocsti\"\n").unwrap();
+    let tcsh_default = default_inject_method("tcsh");
     assert_eq!(load_inject_method(&path, "bash"), "tiocsti");
     assert_eq!(load_inject_method(&path, "zsh"), "print-z");
-    assert_eq!(load_inject_method(&path, "tcsh"), "tiocsti");
+    assert_eq!(load_inject_method(&path, "tcsh"), tcsh_default);
     // bash was already set, zsh/tcsh should be written back
     let content = fs::read_to_string(&path).unwrap();
     assert!(content.contains("bash = \"tiocsti\""));
     assert!(content.contains("zsh = \"print-z\""));
-    assert!(content.contains("tcsh = \"tiocsti\""));
+    assert!(content.contains(&format!("tcsh = \"{}\"", tcsh_default)));
     cleanup(&dir);
 }
 

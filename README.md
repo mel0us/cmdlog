@@ -1,5 +1,8 @@
 # cmdlog
 
+[![license](https://img.shields.io/github/license/mel0us/cmdlog)](LICENSE)
+[![Tests](https://github.com/mel0us/cmdlog/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/mel0us/cmdlog/actions/workflows/build.yml)
+
 Cross-shell command logger with an interactive TUI for browsing and reusing
 your command history across bash, zsh, and tcsh.
 

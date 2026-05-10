@@ -99,6 +99,8 @@ jobs:
 
       - name: Run test suite
         working-directory: dev
+        env:
+          RUSTUP_TOOLCHAIN: stable
         run: ./run_tests.sh
 
   release:
