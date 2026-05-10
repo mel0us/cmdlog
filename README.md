@@ -369,7 +369,3 @@ Format: `DATE\tSHELL\tPWD\tEXIT_CODE\tCMD` (TSV, one line per entry).
 
 Hooks fire after command completion, before the next prompt. No impact on
 command execution latency.
-
-## License
-
-MIT — see [LICENSE](LICENSE).

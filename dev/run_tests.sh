@@ -38,6 +38,13 @@ section "Build (from dev/)"
 (cd "$SCRIPT_DIR" && "$CARGO" build --release 2>&1) && pass "cargo build --release" || { fail "cargo build --release"; exit 1; }
 cp "$SCRIPT_DIR/target/release/cmdlog" "$CMDLOG"
 
+# Stage the canonical install layout inside the test HOME so the hardcoded
+# paths (binary at $HOME/.local/bin/cmdlog, default.conf at
+# $HOME/.local/share/cmdlog/default.conf) resolve to the just-built artifacts.
+mkdir -p "$HOME/.local/bin" "$HOME/.local/share/cmdlog"
+ln -sf "$CMDLOG" "$HOME/.local/bin/cmdlog"
+cp "$CMDLOG_DIR/default.conf" "$HOME/.local/share/cmdlog/default.conf"
+
 # --------------------------------------------------------------------------
 section "Cargo unit/integration tests (from dev/)"
 # --------------------------------------------------------------------------
@@ -87,26 +94,6 @@ n=$(echo "$n" | tr -d ' ')
 
 # tcsh: re-sourcing should not produce errors
 tcsh -f -c "source $CMDLOG_DIR/hook/cmdlog.tcsh; source $CMDLOG_DIR/hook/cmdlog.tcsh; source $CMDLOG_DIR/hook/cmdlog.tcsh" 2>/dev/null && pass "tcsh: re-source produces no errors" || fail "tcsh: re-source produced errors"
-
-# bash: re-source picks up new binary path
-out=$(bash --norc --noprofile -i -c "
-    __CMDLOG_DIR=/old/path
-    source $CMDLOG_DIR/hook/cmdlog.bash 2>/dev/null
-    echo \$__CMDLOG_DIR
-" 2>/dev/null)
-[[ "$out" == *"$CMDLOG_DIR"* ]] && pass "bash: re-source updates binary path" || fail "bash: re-source did not update binary path"
-
-# zsh: re-source picks up new binary path
-out=$(zsh -i --no-rcs -c "
-    __CMDLOG_DIR=/old/path
-    source $CMDLOG_DIR/hook/cmdlog.zsh 2>/dev/null
-    echo \$__CMDLOG_DIR
-" 2>/dev/null)
-[[ "$out" == *"$CMDLOG_DIR"* ]] && pass "zsh: re-source updates binary path" || fail "zsh: re-source did not update binary path"
-
-# tcsh: re-source picks up new __cmdlog_dir (alias uses $__cmdlog_dir at runtime)
-out=$(tcsh -f -c "set prompt = '%'; set __cmdlog_dir = /old/path; source $CMDLOG_DIR/hook/cmdlog.tcsh; set __cmdlog_dir = $CMDLOG_DIR; source $CMDLOG_DIR/hook/cmdlog.tcsh; echo \$__cmdlog_dir" 2>/dev/null)
-[[ "$out" == *"$CMDLOG_DIR"* ]] && pass "tcsh: re-source updates binary path" || fail "tcsh: re-source did not update binary path"
 
 # --------------------------------------------------------------------------
 section "Interactive-only guard"
@@ -606,7 +593,7 @@ TOML
 section "Doctor: config check and repair"
 # --------------------------------------------------------------------------
 
-# Invalid inject for bash — doctor should auto-fix to "readline" and exit 1
+# Invalid inject for bash — doctor should report (no auto-fix; user must edit)
 cat > "$HOME/.cmdlog.conf" <<'TOML'
 [inject]
 bash = "foobar"
@@ -614,9 +601,8 @@ TOML
 $CMDLOG doctor bash 2>/dev/null
 rc=$?
 [[ $rc -eq 1 ]] && pass "doctor bash: invalid inject exits 1" || fail "doctor bash: exits $rc"
-grep -q 'bash = "readline"' "$HOME/.cmdlog.conf" && pass "doctor bash: auto-fixed inject to readline" || fail "doctor bash: not auto-fixed"
 
-# Invalid inject for zsh — doctor should auto-fix to "print-z" and exit 1
+# Invalid inject for zsh — doctor should report (no auto-fix)
 cat > "$HOME/.cmdlog.conf" <<'TOML'
 [inject]
 zsh = "bad_method"
@@ -624,9 +610,8 @@ TOML
 $CMDLOG doctor zsh 2>/dev/null
 rc=$?
 [[ $rc -eq 1 ]] && pass "doctor zsh: invalid inject exits 1" || fail "doctor zsh: exits $rc"
-grep -q 'zsh = "print-z"' "$HOME/.cmdlog.conf" && pass "doctor zsh: auto-fixed inject to print-z" || fail "doctor zsh: not auto-fixed"
 
-# Invalid inject for tcsh — doctor should auto-fix and exit 1
+# Invalid inject for tcsh — doctor should report (no auto-fix)
 cat > "$HOME/.cmdlog.conf" <<'TOML'
 [inject]
 tcsh = "nonexistent"
@@ -634,7 +619,6 @@ TOML
 $CMDLOG doctor tcsh 2>/dev/null
 rc=$?
 [[ $rc -eq 1 ]] && pass "doctor tcsh: invalid inject exits 1" || fail "doctor tcsh: exits $rc"
-grep -qE 'tcsh = "(tiocsti|history)"' "$HOME/.cmdlog.conf" && pass "doctor tcsh: auto-fixed inject" || fail "doctor tcsh: not auto-fixed"
 
 # Invalid show.time — doctor should auto-fix to "age"
 cat > "$HOME/.cmdlog.conf" <<'TOML'
