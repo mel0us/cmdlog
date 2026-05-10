@@ -123,3 +123,79 @@ fn cli_install_unknown_shell() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("Unknown shell"));
 }
+
+// ---------------------------------------------------------------------------
+// Hook (print embedded shell hook source)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn cli_hook_bash_prints_bash_hook() {
+    let output = Command::new(binary_path())
+        .args(["hook", "bash"])
+        .output()
+        .expect("failed to run cmdlog hook bash");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("__cmdlog_record"));
+    assert!(stdout.contains("PROMPT_COMMAND"));
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn cli_hook_zsh_prints_zsh_hook() {
+    let output = Command::new(binary_path())
+        .args(["hook", "zsh"])
+        .output()
+        .expect("failed to run cmdlog hook zsh");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("precmd_functions"));
+}
+
+#[test]
+fn cli_hook_tcsh_prints_tcsh_hook() {
+    let output = Command::new(binary_path())
+        .args(["hook", "tcsh"])
+        .output()
+        .expect("failed to run cmdlog hook tcsh");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("__cmdlog_do_record"));
+}
+
+#[test]
+fn cli_hook_flag_form_accepted() {
+    // `cmdlog hook --bash` should equal `cmdlog hook bash`.
+    let positional = Command::new(binary_path())
+        .args(["hook", "bash"])
+        .output()
+        .unwrap();
+    let flag = Command::new(binary_path())
+        .args(["hook", "--bash"])
+        .output()
+        .unwrap();
+    assert!(flag.status.success());
+    assert_eq!(positional.stdout, flag.stdout);
+}
+
+#[test]
+fn cli_hook_unknown_shell_exits_nonzero() {
+    let output = Command::new(binary_path())
+        .args(["hook", "fish"])
+        .output()
+        .expect("failed to run cmdlog hook fish");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Unknown shell"));
+}
+
+#[test]
+fn cli_hook_missing_shell_arg() {
+    let output = Command::new(binary_path())
+        .arg("hook")
+        .output()
+        .expect("failed to run cmdlog hook");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Usage: cmdlog hook"));
+}

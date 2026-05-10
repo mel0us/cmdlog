@@ -83,6 +83,21 @@ fn cmd_install(shell: &str, force: bool) {
     }
 }
 
+fn cmd_hook(shell: &str) {
+    match cmdlog::hook::hook_source(shell) {
+        Some(src) => {
+            // Embedded files already end with a newline.
+            let stdout = io::stdout();
+            let mut out = BufWriter::new(stdout.lock());
+            let _ = out.write_all(src.as_bytes());
+        }
+        None => {
+            eprintln!("Unknown shell: {}. Expected: bash, zsh, tcsh", shell);
+            process::exit(1);
+        }
+    }
+}
+
 fn cmd_uninstall(shell: &str) {
     let home = home_dir();
 
@@ -668,6 +683,7 @@ Usage:
                                         (no flag: summary, -n: list each, -f: remove)
   cmdlog config <key>                 Query a config value (e.g. inject.bash)
   cmdlog doctor [shell]               Check and repair config
+  cmdlog hook <shell>                 Print shell hook source (for eval)
   cmdlog help                         Show this help
 
 Internal (called by shell hooks):
@@ -752,6 +768,16 @@ fn main() {
                     })
             };
             cmd_doctor(&shell);
+        }
+        "hook" => {
+            // Accept both positional ("cmdlog hook bash") and flag form
+            // ("cmdlog hook --bash") for ergonomic parity with fzf-style usage.
+            if args.len() < 3 {
+                eprintln!("Usage: cmdlog hook <bash|zsh|tcsh>");
+                process::exit(1);
+            }
+            let shell = args[2].strip_prefix("--").unwrap_or(&args[2]);
+            cmd_hook(shell);
         }
         "compact" => {
             let mut mode = CompactMode::Summary;

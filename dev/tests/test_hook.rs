@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use cmdlog::hook::{find_rc_file, install_hook, uninstall_hook};
+use cmdlog::hook::{find_rc_file, hook_source, install_hook, uninstall_hook};
 
 fn tmp_dir(suffix: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
@@ -164,6 +164,53 @@ fn uninstall_hook_fails_if_no_guard() {
     assert!(result.is_err());
 
     cleanup(&dir);
+}
+
+// ---------------------------------------------------------------------------
+// hook_source — embedded hook contents
+// ---------------------------------------------------------------------------
+
+#[test]
+fn hook_source_bash_returns_bash_hook() {
+    let src = hook_source("bash").expect("bash hook missing");
+    assert!(src.contains("__cmdlog_record"), "bash hook should define __cmdlog_record");
+    assert!(src.contains("PROMPT_COMMAND"), "bash hook should integrate with PROMPT_COMMAND");
+}
+
+#[test]
+fn hook_source_zsh_returns_zsh_hook() {
+    let src = hook_source("zsh").expect("zsh hook missing");
+    assert!(src.contains("__cmdlog_record"), "zsh hook should define __cmdlog_record");
+    assert!(src.contains("precmd_functions"), "zsh hook should integrate with precmd_functions");
+}
+
+#[test]
+fn hook_source_tcsh_returns_tcsh_hook() {
+    let src = hook_source("tcsh").expect("tcsh hook missing");
+    assert!(src.contains("__cmdlog_do_record"), "tcsh hook should define __cmdlog_do_record alias");
+    assert!(src.contains("precmd"), "tcsh hook should chain into precmd");
+}
+
+#[test]
+fn hook_source_unknown_shell_returns_none() {
+    assert!(hook_source("fish").is_none());
+    assert!(hook_source("").is_none());
+    assert!(hook_source("BASH").is_none(), "case-sensitive");
+}
+
+#[test]
+fn hook_source_matches_disk_files() {
+    // Embedded content must match the on-disk hook files byte-for-byte —
+    // single source of truth for both `source ~/.local/share/cmdlog/hook/*`
+    // and `eval "$(cmdlog hook *)"` install styles.
+    let manifest = env!("CARGO_MANIFEST_DIR");
+    for shell in &["bash", "zsh", "tcsh"] {
+        let path = format!("{}/../hook/cmdlog.{}", manifest, shell);
+        let on_disk = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {}", path, e));
+        let embedded = hook_source(shell).unwrap();
+        assert_eq!(embedded, on_disk, "{} hook drift between embedded and on-disk", shell);
+    }
 }
 
 #[test]

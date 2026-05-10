@@ -66,6 +66,25 @@ into the first existing rc candidate:
 
 Re-runs are detected and refused. To remove: `cmdlog uninstall <shell>`.
 
+### Alternative: eval-based wiring (bash/zsh)
+
+If you prefer fzf/zoxide-style integration, the hook source is also available
+from the binary itself:
+
+```bash
+# .bashrc
+eval "$(cmdlog hook bash)"
+
+# .zshrc
+eval "$(cmdlog hook zsh)"
+```
+
+The `cmdlog hook <shell>` subcommand prints the same hook contents that
+`cmdlog install` wires up via `source`. Adds one fork (~2 ms) per shell start
+in exchange for the hook always matching the binary version. Both `cmdlog hook
+bash` and `cmdlog hook --bash` forms are accepted. tcsh users should keep the
+`source` form because tcsh backtick substitution collapses newlines.
+
 ## Usage
 
 ### Interactive TUI

@@ -67,6 +67,25 @@ zsh --no-rcs -c "source $CMDLOG_DIR/hook/cmdlog.zsh 2>/dev/null" && pass "hook.z
 tcsh -f -c "source $CMDLOG_DIR/hook/cmdlog.tcsh" 2>/dev/null && pass "hook.tcsh sources without error" || fail "hook.tcsh source error"
 
 # --------------------------------------------------------------------------
+section "cmdlog hook subcommand: eval pattern"
+# --------------------------------------------------------------------------
+
+# `eval "$(cmdlog hook bash)"` integrates without source-ing the on-disk file.
+out=$(bash --norc --noprofile -i -c "eval \"\$($CMDLOG hook bash)\" 2>/dev/null; declare -F __cmdlog_record" 2>/dev/null)
+[[ "$out" == *"__cmdlog_record"* ]] && pass "bash: eval \$(cmdlog hook bash) registers __cmdlog_record" || fail "bash: eval pattern did not register hook"
+
+out=$(zsh --no-rcs -i -c "eval \"\$($CMDLOG hook zsh)\" 2>/dev/null; whence __cmdlog_record" 2>/dev/null)
+[[ "$out" == *"__cmdlog_record"* ]] && pass "zsh: eval \$(cmdlog hook zsh) registers __cmdlog_record" || fail "zsh: eval pattern did not register hook"
+
+# `cmdlog hook` content matches on-disk hook file byte-for-byte.
+diff <($CMDLOG hook bash) "$CMDLOG_DIR/hook/cmdlog.bash" >/dev/null && pass "hook bash output matches on-disk file" || fail "hook bash output drift vs on-disk file"
+diff <($CMDLOG hook zsh)  "$CMDLOG_DIR/hook/cmdlog.zsh"  >/dev/null && pass "hook zsh output matches on-disk file"  || fail "hook zsh output drift vs on-disk file"
+diff <($CMDLOG hook tcsh) "$CMDLOG_DIR/hook/cmdlog.tcsh" >/dev/null && pass "hook tcsh output matches on-disk file" || fail "hook tcsh output drift vs on-disk file"
+
+# Flag form `--bash` is accepted as a synonym for positional `bash`.
+diff <($CMDLOG hook --bash) <($CMDLOG hook bash) >/dev/null && pass "hook --bash equals hook bash" || fail "hook --bash diverges from hook bash"
+
+# --------------------------------------------------------------------------
 section "Re-source safety"
 # --------------------------------------------------------------------------
 

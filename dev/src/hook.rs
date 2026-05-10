@@ -33,6 +33,23 @@ pub fn hook_filename(shell: &str) -> &'static str {
     }
 }
 
+/// Hook source files embedded at build time. Single source of truth: the
+/// on-disk `hook/cmdlog.<shell>` files used by `source`-style installs are
+/// the same bytes the `cmdlog hook <shell>` subcommand emits.
+const HOOK_BASH: &str = include_str!("../../hook/cmdlog.bash");
+const HOOK_ZSH:  &str = include_str!("../../hook/cmdlog.zsh");
+const HOOK_TCSH: &str = include_str!("../../hook/cmdlog.tcsh");
+
+/// Return the embedded hook source for a shell.
+pub fn hook_source(shell: &str) -> Option<&'static str> {
+    match shell {
+        "bash" => Some(HOOK_BASH),
+        "zsh"  => Some(HOOK_ZSH),
+        "tcsh" => Some(HOOK_TCSH),
+        _ => None,
+    }
+}
+
 /// Install a hook into an rc file. Appends a guarded source block.
 pub fn install_hook(rc_path: &Path, hook_path: &Path) -> Result<(), String> {
     let content = fs::read_to_string(rc_path)
