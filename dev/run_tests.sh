@@ -486,7 +486,7 @@ for subcmd_label in "help:cmdlog help" "--badarg:cmdlog --badarg" "record:cmdlog
     result=$(expect -c "
         log_user 0
         set timeout 5
-        spawn /usr/bin/tcsh -f -i
+        spawn tcsh -f -i
         expect -re {[>$%#]}
         send \"source $CMDLOG_DIR/hook/cmdlog.tcsh\r\"
         expect -re {[>$%#]}
@@ -510,7 +510,7 @@ section "Interactive: tcsh prompt appears after hook (expect)"
 result=$(expect -c "
     log_user 0
     set timeout 5
-    spawn /usr/bin/tcsh -f -i
+    spawn tcsh -f -i
     expect -re {[>$%#]}
     send \"source $CMDLOG_DIR/hook/cmdlog.tcsh\r\"
     expect {
@@ -530,7 +530,7 @@ rm -f "$HOME/.cmdlog.tsv"
 expect -c "
     log_user 0
     set timeout 5
-    spawn /usr/bin/tcsh -f -i
+    spawn tcsh -f -i
     expect -re {[>$%#]}
     send \"source $CMDLOG_DIR/hook/cmdlog.tcsh\r\"
     expect -re {[>$%#]}
@@ -746,7 +746,7 @@ section "Inject: TIOCSTI e2e (expect)"
 result=$(expect -c "
     log_user 0
     set timeout 5
-    spawn /usr/bin/tcsh -f -i
+    spawn tcsh -f -i
     expect -re {[>$%#]}
     send \"$CMDLOG inject tcsh 'echo hello_tiocsti'\r\"
     expect {

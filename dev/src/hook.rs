@@ -81,7 +81,7 @@ pub fn install_hook(rc_path: &Path, shell: &str, home: &Path) -> Result<(), Stri
 
     if content.contains(GUARD_BEGIN) {
         return Err(format!(
-            "cmdlog hook already present in {}.",
+            "cmdlog hook already present in {}",
             rc_path.display()
         ));
     }
@@ -99,7 +99,7 @@ pub fn install_hook(rc_path: &Path, shell: &str, home: &Path) -> Result<(), Stri
         }
         if markers.iter().any(|m| trimmed.contains(m.as_str())) {
             return Err(format!(
-                "cmdlog hook already present in {}.",
+                "cmdlog hook already present in {}",
                 rc_path.display()
             ));
         }
