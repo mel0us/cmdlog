@@ -233,36 +233,85 @@ fn is_tty(fd: i32) -> bool {
 #[allow(non_camel_case_types)]
 type libc_ioctl_t = u64;
 
-#[cfg(unix)]
+// TIOCSTI request code differs between OSes — it's an `_IO`-style macro
+// computed from a magic letter ('T' on Linux, 't' on BSD/Darwin) plus the
+// argument size, not a portable constant. Hardcoding Linux's value on
+// macOS makes every ioctl() fail with EINVAL, so we set it per-target.
+#[cfg(all(unix, target_os = "linux"))]
 const TIOCSTI: libc_ioctl_t = 0x5412;
+#[cfg(all(unix, any(
+    target_os = "macos",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonfly",
+)))]
+const TIOCSTI: libc_ioctl_t = 0x80017472;
 
 #[cfg(unix)]
 extern "C" {
     fn ioctl(fd: i32, request: libc_ioctl_t, ...) -> i32;
 }
 
+// c_lflag's offset and width inside `struct termios` differ per OS:
+//   Linux: c_iflag/c_oflag/c_cflag/c_lflag are tcflag_t = u32, so c_lflag
+//          sits at byte offset 12.
+//   macOS/BSD: tcflag_t is u64 and c_lflag is the 4th field, so it sits
+//          at byte offset 24.
+// The opaque byte buffer (oversized for either layout) means we never
+// have to model the struct tail.
+#[cfg(target_os = "linux")]
+const LFLAG_OFFSET: usize = 12;
+#[cfg(target_os = "linux")]
+const LFLAG_WIDTH: usize = 4;
+#[cfg(any(
+    target_os = "macos",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonfly",
+))]
+const LFLAG_OFFSET: usize = 24;
+#[cfg(any(
+    target_os = "macos",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonfly",
+))]
+const LFLAG_WIDTH: usize = 8;
+
+#[cfg(unix)]
+fn read_lflag(buf: &[u8]) -> u64 {
+    let mut tmp = [0u8; 8];
+    tmp[..LFLAG_WIDTH].copy_from_slice(&buf[LFLAG_OFFSET..LFLAG_OFFSET + LFLAG_WIDTH]);
+    u64::from_ne_bytes(tmp)
+}
+
+#[cfg(unix)]
+fn write_lflag(buf: &mut [u8], val: u64) {
+    let bytes = val.to_ne_bytes();
+    buf[LFLAG_OFFSET..LFLAG_OFFSET + LFLAG_WIDTH].copy_from_slice(&bytes[..LFLAG_WIDTH]);
+}
+
 #[cfg(unix)]
 fn try_tiocsti(text: &str) -> bool {
     // Suppress terminal echo while pushing TIOCSTI bytes so they don't
     // appear twice (once from echo, once when the shell reads them).
-    // Uses an opaque buffer for termios to avoid struct layout assumptions.
+    // Uses an opaque buffer for termios to avoid struct tail assumptions.
     extern "C" {
         fn tcgetattr(fd: i32, buf: *mut u8) -> i32;
         fn tcsetattr(fd: i32, action: i32, buf: *const u8) -> i32;
     }
-    // c_lflag is the 4th u32 field in Linux termios (after c_iflag, c_oflag,
-    // c_cflag). tcflag_t is u32 on all Linux architectures, so offset 12
-    // is stable regardless of struct tail layout (NCCS, speed fields).
-    const LFLAG_OFFSET: usize = 12;
-    const ECHO: u32 = 0o10;
+    const ECHO: u64 = 0o10;
     const TCSANOW: i32 = 0;
 
-    let mut saved = [0u8; 128]; // oversized for any Linux termios variant
+    let mut saved = [0u8; 128]; // oversized for any Unix termios variant
     let have_termios = unsafe { tcgetattr(0, saved.as_mut_ptr()) == 0 };
     if have_termios {
         let mut noecho = saved;
-        let lflag = u32::from_ne_bytes(noecho[LFLAG_OFFSET..LFLAG_OFFSET + 4].try_into().unwrap());
-        noecho[LFLAG_OFFSET..LFLAG_OFFSET + 4].copy_from_slice(&(lflag & !ECHO).to_ne_bytes());
+        let lflag = read_lflag(&noecho);
+        write_lflag(&mut noecho, lflag & !ECHO);
         unsafe { tcsetattr(0, TCSANOW, noecho.as_ptr()); }
     }
 
