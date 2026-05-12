@@ -5,7 +5,7 @@ use ratatui::widgets::{List, ListItem, Paragraph};
 use ratatui::Frame;
 
 use crate::tui::badge::{self, BadgeDesc, RowLayout, SlotKind};
-use crate::tui::filter::{age_string, DisplayEntry};
+use crate::tui::filter::{age_string, fuzzy_indices, DisplayEntry, NeedleBuf};
 use crate::tui::state::{AppState, DirMode, FilterToggle, FocusZone, ShowColumn, TimeMode};
 
 /// Display text for entries whose path matches the current working directory.
@@ -142,6 +142,63 @@ fn is_number_or_version(s: &str) -> bool {
     }
     // All chars must be digits or dots (covers 100, 3.14, 1.2.3)
     s.bytes().all(|b| b.is_ascii_digit() || b == b'.')
+}
+
+/// Style applied to chars that matched the active fuzzy needle. Adds bold
+/// + underline + a vivid fg, layered on top of the existing syntax color.
+fn fuzzy_overlay_style(base: Style) -> Style {
+    base.fg(Color::LightCyan)
+        .add_modifier(Modifier::BOLD)
+        .add_modifier(Modifier::UNDERLINED)
+}
+
+/// Re-emit `spans` with each char at a position in `match_chars` wearing
+/// the fuzzy overlay style. Assumes the haystack is ASCII (codepoint index
+/// == byte offset) — same assumption `colorize_cmd` already makes about
+/// shell command text.
+fn apply_match_highlight(
+    spans: Vec<Span<'static>>,
+    match_chars: &[u32],
+) -> Vec<Span<'static>> {
+    if match_chars.is_empty() {
+        return spans;
+    }
+    let mut out: Vec<Span<'static>> = Vec::with_capacity(spans.len() + match_chars.len() * 2);
+    let mut byte_pos: usize = 0;
+    for span in spans {
+        let text_len = span.content.len();
+        let span_start = byte_pos;
+        let span_end = byte_pos + text_len;
+        let base_style = span.style;
+        let mut local_cursor: usize = 0;
+        for &m in match_chars {
+            let m = m as usize;
+            if m < span_start || m >= span_end {
+                continue;
+            }
+            let local = m - span_start;
+            if local > local_cursor {
+                out.push(Span::styled(
+                    span.content[local_cursor..local].to_string(),
+                    base_style,
+                ));
+            }
+            let next = local + 1; // ASCII assumption
+            out.push(Span::styled(
+                span.content[local..next].to_string(),
+                fuzzy_overlay_style(base_style),
+            ));
+            local_cursor = next;
+        }
+        if local_cursor < text_len {
+            out.push(Span::styled(
+                span.content[local_cursor..].to_string(),
+                base_style,
+            ));
+        }
+        byte_pos = span_end;
+    }
+    out
 }
 
 /// Tokenize a shell command into styled spans (Rich-like pretty printing).
@@ -510,12 +567,8 @@ fn draw_search(frame: &mut Frame, state: &AppState, area: Rect) {
         ])
         .split(area);
 
-    let search_valid = state.search.search_input.is_empty() || state.search.search_regex.is_some();
-
     let rule = "─".repeat(area.width as usize);
-    let rule_style = if !search_valid {
-        Style::new().fg(Color::Red)
-    } else if state.nav.focus == FocusZone::Search {
+    let rule_style = if state.nav.focus == FocusZone::Search {
         Style::new().fg(CYAN)
     } else {
         dim()
@@ -523,9 +576,7 @@ fn draw_search(frame: &mut Frame, state: &AppState, area: Rect) {
     frame.render_widget(Paragraph::new(Span::styled(rule.clone(), rule_style)), rows[0]);
     frame.render_widget(Paragraph::new(Span::styled(rule, rule_style)), rows[2]);
 
-    let prompt_style = if !search_valid {
-        Style::new().fg(Color::Red).add_modifier(Modifier::BOLD)
-    } else if state.nav.focus == FocusZone::Search {
+    let prompt_style = if state.nav.focus == FocusZone::Search {
         active()
     } else {
         dim()
@@ -547,9 +598,6 @@ fn draw_search(frame: &mut Frame, state: &AppState, area: Rect) {
     } else {
         input_spans.push(Span::styled(&state.search.search_input, normal()));
     };
-    if !search_valid {
-        input_spans.push(Span::styled(" (invalid regex)", Style::new().fg(Color::Red)));
-    }
     frame.render_widget(Paragraph::new(Line::from(input_spans)), rows[1]);
 }
 
@@ -717,6 +765,15 @@ fn draw_list(frame: &mut Frame, state: &AppState, entries: &[DisplayEntry], area
         meta_total += 2 + grp_width; // "  " prefix + bitmap digits
     }
 
+    // Build the fuzzy needle buffer once for the whole row pass. None when
+    // the search bar is empty — entries render without overlay in that case.
+    let needle = state.search.search_input.as_str();
+    let needle_buf = if needle.is_empty() {
+        None
+    } else {
+        Some(NeedleBuf::new(needle))
+    };
+
     let items: Vec<ListItem> = visible
         .iter()
         .enumerate()
@@ -767,7 +824,23 @@ fn draw_list(frame: &mut Frame, state: &AppState, entries: &[DisplayEntry], area
             } else if is_cursor {
                 spans.push(Span::styled(format!("{:<width$}", display_cmd, width = cmd_width), highlight()));
             } else {
-                spans.extend(colorize_cmd(&display_cmd));
+                let base_spans = colorize_cmd(&display_cmd);
+                // Layer fuzzy match highlight on top of syntax coloring when
+                // a search query is active and this row matched. We recompute
+                // indices against `display_cmd` (truncated) so positions align
+                // with what's actually rendered.
+                let with_highlight = match needle_buf.as_ref() {
+                    Some(buf) => {
+                        let mut idx: Vec<u32> = Vec::new();
+                        if fuzzy_indices(&display_cmd, needle, buf, &mut idx).is_some() {
+                            apply_match_highlight(base_spans, &idx)
+                        } else {
+                            base_spans
+                        }
+                    }
+                    None => base_spans,
+                };
+                spans.extend(with_highlight);
                 if display_cmd.len() < cmd_width {
                     spans.push(Span::raw(" ".repeat(cmd_width - display_cmd.len())));
                 }
@@ -1158,5 +1231,58 @@ mod tests {
         let abspath = "/home/user/deep/nested/very_long_directory_name";
         let result = shorten_path_middle(abspath, 30);
         assert!(result.starts_with('/'), "abspath must start with /: {}", result);
+    }
+
+    // -----------------------------------------------------------------------
+    // Fuzzy match highlighting overlay
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn apply_match_highlight_empty_indices_is_passthrough() {
+        let spans = colorize_cmd("git status");
+        let before_len = spans.len();
+        let after = apply_match_highlight(spans.clone(), &[]);
+        assert_eq!(after.len(), before_len);
+        assert_eq!(span_info(&after), span_info(&spans));
+    }
+
+    #[test]
+    fn apply_match_highlight_marks_matched_chars_with_overlay_style() {
+        // "git status", needle "gst" → match positions 0 (g), 4 (s), 5 (t)
+        let spans = colorize_cmd("git status");
+        let highlighted = apply_match_highlight(spans, &[0, 4, 5]);
+
+        // Every match char should appear in its own span with BOLD+UNDERLINED.
+        let g = highlighted.iter().find(|s| s.content == "g").expect("g span");
+        assert!(g.style.add_modifier.contains(Modifier::BOLD));
+        assert!(g.style.add_modifier.contains(Modifier::UNDERLINED));
+
+        let s = highlighted.iter().find(|s| s.content == "s").expect("s span");
+        assert!(s.style.add_modifier.contains(Modifier::UNDERLINED));
+
+        // Reassembling all span contents must give the original text back.
+        let joined: String = highlighted.iter().map(|s| s.content.to_string()).collect();
+        assert_eq!(joined, "git status");
+    }
+
+    #[test]
+    fn apply_match_highlight_preserves_base_syntax_modifiers() {
+        // The first token "git" is rendered bold-magenta by colorize_cmd.
+        // Highlighting position 0 must KEEP bold (already there from base
+        // style) and ADD underline.
+        let spans = colorize_cmd("git status");
+        let highlighted = apply_match_highlight(spans, &[0]);
+        let g = highlighted.iter().find(|s| s.content == "g").expect("g span");
+        assert!(g.style.add_modifier.contains(Modifier::BOLD), "base BOLD lost");
+        assert!(g.style.add_modifier.contains(Modifier::UNDERLINED), "overlay UNDERLINED missing");
+    }
+
+    #[test]
+    fn apply_match_highlight_out_of_range_indices_ignored() {
+        // Indices past the haystack length are silently skipped.
+        let spans = colorize_cmd("ls");
+        let highlighted = apply_match_highlight(spans, &[99]);
+        let joined: String = highlighted.iter().map(|s| s.content.to_string()).collect();
+        assert_eq!(joined, "ls");
     }
 }

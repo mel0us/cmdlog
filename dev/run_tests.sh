@@ -291,6 +291,25 @@ n=$($CMDLOG list --no-color -a -t zsh -p /home/edwardc/project-b | wc -l)
 out=$($CMDLOG list --no-color -s zzzznonexistent 2>&1)
 [[ "$out" == "No matching entries." ]] && pass "list: no match message" || fail "list: no match output: '$out'"
 
+# Fuzzy (-f) is a separate flag from substring (-s). "gpl" matches
+# "git pull" as a g→p→l subsequence with gaps; literal substring "gpl"
+# matches nothing in the fixture.
+n=$($CMDLOG list --no-color -a -s gpl | wc -l)
+[[ "$n" -eq 0 ]] && pass "list: -s 'gpl' literal returns 0" || fail "list: -s 'gpl' returns $n"
+
+n=$($CMDLOG list --no-color -a -f gpl | wc -l)
+[[ "$n" -ge 1 ]] && pass "list: -f 'gpl' fuzzy-matches 'git pull'" || fail "list: -f 'gpl' returns $n"
+
+# -s and -f combine with AND. "git" substring keeps the 2 git-prefixed
+# entries; fuzzy "gts" matches both "git status" (g→t→s) and
+# "grep ... TODO src/" — the intersection is "git status" only.
+n=$($CMDLOG list --no-color -a -s git -f gts | wc -l)
+[[ "$n" -eq 1 ]] && pass "list: -s + -f combine (AND)" || fail "list: -s + -f returns $n"
+
+$CMDLOG list --help 2>&1 | grep -q -- "-f, --fuzzy" \
+    && pass "list: --help mentions -f/--fuzzy" \
+    || fail "list: --help missing -f/--fuzzy"
+
 # --no-color
 out=$($CMDLOG list --no-color -n 1)
 if echo "$out" | grep -qP '\033\['; then

@@ -109,6 +109,7 @@ pub struct ListOpts {
     pub last_n: Option<usize>,
     pub show_all: bool,
     pub search: Option<String>,
+    pub fuzzy: Option<String>,
     pub date: Option<String>,
     pub shell_type: Option<String>,
     pub path_prefix: Option<String>,
@@ -125,6 +126,7 @@ impl Default for ListOpts {
             last_n: Some(20),
             show_all: false,
             search: None,
+            fuzzy: None,
             date: None,
             shell_type: None,
             path_prefix: None,
@@ -153,6 +155,12 @@ pub fn parse_list_args(args: &[String]) -> ListOpts {
                 i += 1;
                 if i < args.len() {
                     opts.search = Some(args[i].clone());
+                }
+            }
+            "-f" | "--fuzzy" => {
+                i += 1;
+                if i < args.len() {
+                    opts.fuzzy = Some(args[i].clone());
                 }
             }
             "-d" | "--date" => {

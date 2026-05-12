@@ -147,6 +147,7 @@ Options:
   -n, --last N        Show last N entries (default: 20)
   -a, --all           Show all entries
   -s, --search PAT    Filter command text (substring, case-insensitive)
+  -f, --fuzzy PAT     Filter command text (fuzzy, fzf-style)
   -d, --date PREFIX   Filter by date prefix (e.g. 2026-04-06)
   -t, --shell-type S  Filter by shell (bash, zsh, tcsh)
   -p, --path PREFIX   Filter by working directory prefix
@@ -254,6 +255,9 @@ fn run_linear_list(opts: &cmd::ListOpts, config_state: &tui::state::AppState, cu
         None
     };
     let search_lower = opts.search.as_ref().map(|s| s.to_lowercase());
+    // Pre-segment fuzzy needle once (NeedleBuf is reused across all entries).
+    let fuzzy_query = opts.fuzzy.as_deref();
+    let fuzzy_buf = fuzzy_query.map(tui::filter::NeedleBuf::new);
 
     let waive_commands = &config_state.session.waive_commands;
     let waive_min_cmd_len = config_state.session.waive_min_cmd_len;
@@ -290,6 +294,11 @@ fn run_linear_list(opts: &cmd::ListOpts, config_state: &tui::state::AppState, cu
             }
             if let Some(ref sl) = search_lower {
                 if !entry.cmd.to_lowercase().contains(sl.as_str()) {
+                    return false;
+                }
+            }
+            if let (Some(q), Some(buf)) = (fuzzy_query, fuzzy_buf.as_ref()) {
+                if tui::filter::fuzzy_score(&entry.cmd, q, buf).is_none() {
                     return false;
                 }
             }

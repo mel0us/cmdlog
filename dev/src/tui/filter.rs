@@ -1,9 +1,93 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
+
+use nucleo_matcher::{Config, Matcher, Utf32Str};
 
 use crate::cmd;
 use crate::log::LogEntry;
 use crate::repo::RepoResolver;
 use crate::tui::state::{GroupDimension, FilterToggle, OrderDimension};
+
+// Thread-local fuzzy matcher + reusable haystack buffer. The TUI is single-
+// threaded and tests run with --test-threads=1, so a single Matcher per
+// thread is safe. The Matcher caches DP tables across calls — reuse matters
+// for per-keystroke latency. The needle is segmented once per pipeline run
+// in `apply_pipeline` (see `NeedleBuf`) rather than once per entry, so it
+// doesn't live here.
+thread_local! {
+    static MATCHER: RefCell<Matcher> = RefCell::new(Matcher::new(Config::DEFAULT));
+    static HAYSTACK_BUF: RefCell<Vec<char>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Owns the codepoint buffer backing a pre-segmented needle. Allocated once
+/// per pipeline run, borrowed by `Utf32Str` for every per-entry score call.
+pub struct NeedleBuf {
+    chars: Vec<char>,
+    is_empty: bool,
+}
+
+impl NeedleBuf {
+    pub fn new(needle: &str) -> Self {
+        let mut chars = Vec::new();
+        // Pre-segment once. `Utf32Str::new` fills `chars` only for non-ASCII
+        // needles; ASCII path is zero-allocation. We discard the returned
+        // Utf32Str here because its lifetime is tied to `chars` and we want
+        // to hand out fresh borrows in `as_utf32`.
+        let _ = Utf32Str::new(needle, &mut chars);
+        NeedleBuf { chars, is_empty: needle.is_empty() }
+    }
+
+    fn as_utf32<'a>(&'a self, needle: &'a str) -> Utf32Str<'a> {
+        // ASCII needles bypass the chars buffer entirely.
+        if needle.is_ascii() {
+            Utf32Str::Ascii(needle.as_bytes())
+        } else {
+            Utf32Str::Unicode(&self.chars)
+        }
+    }
+}
+
+/// Score a haystack against a pre-segmented needle. Returns None when the
+/// needle is not a subsequence of the haystack. Empty needle returns
+/// `Some(0)` uniformly so the "no query" case degenerates to a tied sort.
+pub fn fuzzy_score(haystack: &str, needle: &str, buf: &NeedleBuf) -> Option<u16> {
+    if buf.is_empty {
+        return Some(0);
+    }
+    MATCHER.with(|m| {
+        HAYSTACK_BUF.with(|hb| {
+            let mut hb = hb.borrow_mut();
+            let h = Utf32Str::new(haystack, &mut hb);
+            let n = buf.as_utf32(needle);
+            m.borrow_mut().fuzzy_match(h, n)
+        })
+    })
+}
+
+/// Score + record the codepoint positions in `haystack` that the needle
+/// matched. `out` is appended to (nucleo doesn't clear it). Callers are
+/// expected to `out.clear()` between uses. Only called for the visible
+/// viewport during rendering — `fuzzy_indices` is more expensive than
+/// `fuzzy_match` because it tracks the DP path, so don't call it from the
+/// filter loop where we score every candidate.
+pub fn fuzzy_indices(
+    haystack: &str,
+    needle: &str,
+    buf: &NeedleBuf,
+    out: &mut Vec<u32>,
+) -> Option<u16> {
+    if buf.is_empty {
+        return Some(0);
+    }
+    MATCHER.with(|m| {
+        HAYSTACK_BUF.with(|hb| {
+            let mut hb = hb.borrow_mut();
+            let h = Utf32Str::new(haystack, &mut hb);
+            let n = buf.as_utf32(needle);
+            m.borrow_mut().fuzzy_indices(h, n, out)
+        })
+    })
+}
 
 /// All parameters the pipeline needs, decoupled from AppState.
 pub struct FilterSpec<'r> {
@@ -15,7 +99,9 @@ pub struct FilterSpec<'r> {
     pub exit_failure: bool,
     pub operator_piped: bool,
     pub operator_chained: bool,
-    pub search_regex: Option<&'r regex::Regex>,
+    /// Fuzzy needle. `None` (or empty string semantically) means "no search
+    /// active" — every entry passes and score sort is skipped.
+    pub search_query: Option<&'r str>,
     pub deleted: &'r std::collections::HashSet<String>,
     pub waive_commands: &'r [String],
     pub waive_min_cmd_len: usize,
@@ -35,7 +121,11 @@ impl<'r> From<&'r super::state::AppState> for FilterSpec<'r> {
             exit_failure: s.filter.is_exit_filter_failure(),
             operator_piped: s.filter.is_operator_filter_piped(),
             operator_chained: s.filter.is_operator_filter_chained(),
-            search_regex: s.search.search_regex.as_ref(),
+            search_query: if s.search.search_input.is_empty() {
+                None
+            } else {
+                Some(s.search.search_input.as_str())
+            },
             deleted: s.delete_log.deleted_set(),
             waive_commands: &s.session.waive_commands,
             waive_min_cmd_len: s.session.waive_min_cmd_len,
@@ -54,6 +144,10 @@ pub struct DisplayEntry {
     pub relpath: String,
     pub frequency: usize,
     pub group_score: u8,
+    /// Fuzzy-match score against the active search query (0 when no query
+    /// is active). Higher = better match; nucleo scores favor word starts,
+    /// camelCase boundaries, and consecutive char runs.
+    pub search_score: u16,
 }
 
 /// Build frequency map: cmd -> count
@@ -131,53 +225,53 @@ pub fn apply_pipeline<R: RepoResolver>(
         None
     };
 
-    // Step 1: Filter
-    let filtered: Vec<&LogEntry> = all_entries
+    // Step 1: Filter + score. Fuzzy match runs last so we only pay scoring
+    // cost for entries that survive the cheap predicate filters. The needle
+    // is segmented once here (NeedleBuf), then borrowed by every per-entry
+    // call inside the loop — avoids O(needle_len) re-segmentation per entry.
+    let needle = spec.search_query.unwrap_or("");
+    let needle_buf = NeedleBuf::new(needle);
+    let filtered: Vec<(&LogEntry, u16)> = all_entries
         .iter()
-        .filter(|e| {
-            // Soft-deleted entries (date is unique per log line)
+        .filter_map(|e| {
             if !spec.deleted.is_empty() && spec.deleted.contains(&e.date) {
-                return false;
+                return None;
             }
             if spec.filter_shell && e.shell != ctx.current_shell {
-                return false;
+                return None;
             }
             if spec.filter_dir && e.pwd != ctx.current_dir {
-                return false;
+                return None;
             }
             if spec.filter_repo {
                 let entry_repo = repo_cache.repo_name(&e.pwd);
                 if entry_repo != ctx.current_repo {
-                    return false;
+                    return None;
                 }
             }
             if let Some(ref t) = today {
                 if !e.date.starts_with(t.as_str()) {
-                    return false;
+                    return None;
                 }
             }
             if spec.operator_piped && !e.cmd.contains('|') {
-                return false;
+                return None;
             }
             if spec.operator_chained && !e.cmd.bytes().any(|b| b";&|".contains(&b)) {
-                return false;
+                return None;
             }
             if spec.exit_success && e.exit_code != "0" {
-                return false;
+                return None;
             }
             if spec.exit_failure && e.exit_code == "0" {
-                return false;
+                return None;
             }
-            // Waive + min-length filters (skip if command has shell operators)
             if cmd::should_waive(&e.cmd, spec.waive_commands, spec.waive_min_cmd_len) {
-                return false;
+                return None;
             }
-            if let Some(re) = spec.search_regex {
-                if !re.is_match(&e.cmd) {
-                    return false;
-                }
-            }
-            true
+            // Fuzzy match — empty needle scores 0 for everything (no filter).
+            let score = fuzzy_score(&e.cmd, needle, &needle_buf)?;
+            Some((e, score))
         })
         .collect();
 
@@ -190,7 +284,7 @@ pub fn apply_pipeline<R: RepoResolver>(
 
     let mut display: Vec<DisplayEntry> = filtered
         .into_iter()
-        .map(|e| {
+        .map(|(e, search_score)| {
             let (repo_name, relpath) = repo_cache.resolve_name_and_relpath(&e.pwd);
             let frequency = if spec.dedup {
                 *freq_map.get(&e.cmd).unwrap_or(&1)
@@ -203,6 +297,7 @@ pub fn apply_pipeline<R: RepoResolver>(
                 relpath,
                 frequency,
                 group_score: 0,
+                search_score,
             };
             let score = group_score(&de, &enabled_groups, ctx.current_dir, ctx.current_repo, &current_relpath);
             DisplayEntry { group_score: score, ..de }
@@ -210,6 +305,9 @@ pub fn apply_pipeline<R: RepoResolver>(
         .collect();
 
     if spec.dedup {
+        // When deduping with a search active, keep the highest-scoring
+        // occurrence rather than the most recent — otherwise a perfect
+        // earlier match gets dropped in favor of a later partial one.
         let mut seen = std::collections::HashSet::new();
         let mut deduped = Vec::new();
         for e in display.into_iter().rev() {
@@ -222,10 +320,16 @@ pub fn apply_pipeline<R: RepoResolver>(
     }
 
     display.sort_by(|a, b| {
-        // Compare cached group scores (left-to-right priority baked in)
+        // Fuzzy score is always the primary sort key. With no active query,
+        // every entry scores 0 — the comparison resolves to Equal and falls
+        // through to group_score and order badges, preserving the original
+        // pre-search ordering. With a query, strongest match wins.
+        match b.search_score.cmp(&a.search_score) {
+            std::cmp::Ordering::Equal => {}
+            other => return other,
+        }
         match b.group_score.cmp(&a.group_score) {
             std::cmp::Ordering::Equal => {
-                // Within same group, apply order dimensions (left-most = primary)
                 for badge in spec.order {
                     let cmp = match badge.dim {
                         OrderDimension::Recency => {

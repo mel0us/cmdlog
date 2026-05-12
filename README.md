@@ -89,7 +89,7 @@ Quick Filter:   [this shell] [this dir] [this repo] ...  narrow results
 Context Group:  [abspath] [repo] [relpath]                group current context on top
 Sort Order:     [recency: new first] [frequency: most]    sort controls
 ─────────────────────────────────────────────
-> search regex here█
+> fuzzy search here█
 ─────────────────────────────────────────────
 > git push origin main                             selected command
   make -j8
@@ -119,7 +119,7 @@ Sort Order:     [recency: new first] [frequency: most]    sort controls
 
 | Key | Action |
 |-----|--------|
-| Type | Regex search (filters in real-time) |
+| Type | Fuzzy search (fzf-style; filters + ranks in real-time, matched chars highlighted) |
 | **Backspace** | Delete last character |
 | **Enter** / **Down** | Move focus to list |
 
@@ -192,6 +192,7 @@ For scripting or when stderr is not a TTY:
 cmdlog list --no-tui                    # linear output to terminal
 cmdlog list --no-color                  # plain text (for piping)
 cmdlog list -a -t bash -s "git"         # all entries, bash only, matching "git"
+cmdlog list -a -f "gst"                 # fuzzy: matches "git status", "gateway start", etc.
 cmdlog list --today --here              # today's commands in current dir
 cmdlog list -d 2026-04 -p /tmp -n 50   # April, /tmp prefix, last 50
 ```
@@ -203,6 +204,7 @@ cmdlog list -d 2026-04 -p /tmp -n 50   # April, /tmp prefix, last 50
 | `-n`, `--last N` | Show last N entries (default: 20) |
 | `-a`, `--all` | Show all entries |
 | `-s`, `--search PAT` | Filter by command substring (case-insensitive) |
+| `-f`, `--fuzzy PAT` | Filter by fuzzy match (fzf-style, subsequence with bonuses) |
 | `-d`, `--date PREFIX` | Filter by date prefix (e.g., `2026-04-06`) |
 | `-t`, `--shell-type S` | Filter by shell (`bash`, `zsh`, `tcsh`) |
 | `-p`, `--path PREFIX` | Filter by working directory prefix |

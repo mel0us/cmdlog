@@ -232,7 +232,6 @@ pub struct NavState {
 pub struct SearchState {
     pub search_input: String,
     pub search_cursor: usize,
-    pub search_regex: Option<regex::Regex>,
 }
 
 pub struct SessionCtx {
@@ -576,7 +575,6 @@ impl AppState {
             search: SearchState {
                 search_input: String::new(),
                 search_cursor: 0,
-                search_regex: None,
             },
             session: SessionCtx {
                 current_dir: String::new(),

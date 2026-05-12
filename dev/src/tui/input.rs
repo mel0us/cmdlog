@@ -14,7 +14,7 @@ pub fn handle_event(event: Event, state: &mut AppState, entry_count: usize) -> b
             if state.nav.focus == FocusZone::Search {
                 state.search.search_input.insert_str(state.search.search_cursor, &text);
                 state.search.search_cursor += text.len();
-                update_search_regex(state);
+                on_search_changed(state);
                 true
             } else {
                 false
@@ -65,13 +65,11 @@ fn handle_key(code: KeyCode, modifiers: KeyModifiers, state: &mut AppState, entr
     }
 }
 
-fn update_search_regex(state: &mut AppState) {
-    if state.search.search_input.is_empty() {
-        state.search.search_regex = None;
-    } else {
-        state.search.search_regex = regex::Regex::new(&state.search.search_input).ok();
-    }
-}
+/// Hook invoked after the search input changes. Currently a no-op — fuzzy
+/// scoring is done lazily inside `apply_pipeline` each render — but kept as
+/// a named seam so future cached state (precomputed needle codepoints,
+/// match-position highlighting, etc.) has an obvious place to land.
+fn on_search_changed(_state: &mut AppState) {}
 
 fn handle_search_key(code: KeyCode, modifiers: KeyModifiers, state: &mut AppState) -> bool {
     let ctrl = modifiers.contains(KeyModifiers::CONTROL);
@@ -91,13 +89,13 @@ fn handle_search_key(code: KeyCode, modifiers: KeyModifiers, state: &mut AppStat
                 let pos = state.search.search_cursor;
                 state.search.search_input.drain(..pos);
                 state.search.search_cursor = 0;
-                update_search_regex(state);
+                on_search_changed(state);
                 state.nav.reset_selection();
                 return true;
             }
             KeyCode::Char('k') => {
                 state.search.search_input.truncate(state.search.search_cursor);
-                update_search_regex(state);
+                on_search_changed(state);
                 state.nav.reset_selection();
                 return true;
             }
@@ -108,7 +106,7 @@ fn handle_search_key(code: KeyCode, modifiers: KeyModifiers, state: &mut AppStat
                     let new_pos = before.trim_end().rfind(' ').map(|i| i + 1).unwrap_or(0);
                     state.search.search_input.drain(new_pos..pos);
                     state.search.search_cursor = new_pos;
-                    update_search_regex(state);
+                    on_search_changed(state);
                     state.nav.reset_selection();
                     return true;
                 }
@@ -122,7 +120,7 @@ fn handle_search_key(code: KeyCode, modifiers: KeyModifiers, state: &mut AppStat
         KeyCode::Char(c) => {
             state.search.search_input.insert(state.search.search_cursor, c);
             state.search.search_cursor += c.len_utf8();
-            update_search_regex(state);
+            on_search_changed(state);
             state.nav.reset_selection();
             true
         }
@@ -132,7 +130,7 @@ fn handle_search_key(code: KeyCode, modifiers: KeyModifiers, state: &mut AppStat
                     .char_indices().next_back().map(|(i, _)| i).unwrap_or(0);
                 state.search.search_input.drain(prev..state.search.search_cursor);
                 state.search.search_cursor = prev;
-                update_search_regex(state);
+                on_search_changed(state);
                 state.nav.reset_selection();
                 true
             } else {
@@ -145,7 +143,7 @@ fn handle_search_key(code: KeyCode, modifiers: KeyModifiers, state: &mut AppStat
                     .char_indices().nth(1).map(|(i, _)| state.search.search_cursor + i)
                     .unwrap_or(state.search.search_input.len());
                 state.search.search_input.drain(state.search.search_cursor..next);
-                update_search_regex(state);
+                on_search_changed(state);
                 state.nav.reset_selection();
                 true
             } else {

@@ -250,6 +250,30 @@ fn parse_search_flag() {
     let args: Vec<String> = vec!["-s".into(), "git".into()];
     let opts = parse_list_args(&args);
     assert_eq!(opts.search, Some("git".to_string()));
+    assert!(opts.fuzzy.is_none(), "-s must not set fuzzy");
+}
+
+#[test]
+fn parse_fuzzy_flag() {
+    let short: Vec<String> = vec!["-f".into(), "gst".into()];
+    let long:  Vec<String> = vec!["--fuzzy".into(), "gst".into()];
+    for args in [short, long] {
+        let opts = parse_list_args(&args);
+        assert_eq!(opts.fuzzy, Some("gst".to_string()));
+        assert!(opts.search.is_none(), "-f must not set search");
+    }
+}
+
+#[test]
+fn parse_search_and_fuzzy_together() {
+    // Combining -s and -f is allowed; AND-applied at filter time.
+    let args: Vec<String> = vec![
+        "-s".into(), "git".into(),
+        "-f".into(), "stsh".into(),
+    ];
+    let opts = parse_list_args(&args);
+    assert_eq!(opts.search, Some("git".to_string()));
+    assert_eq!(opts.fuzzy,  Some("stsh".to_string()));
 }
 
 #[test]

@@ -240,16 +240,18 @@ fn pipeline_dedup() {
 }
 
 // ---------------------------------------------------------------------------
-// apply_pipeline: search
+// apply_pipeline: fuzzy search
 // ---------------------------------------------------------------------------
 
 #[test]
-fn pipeline_search_regex() {
+fn pipeline_search_substring_match() {
+    // Substring queries are a subset of fuzzy matching — "git" matches
+    // every entry containing g→i→t in order, which for sample_entries
+    // is just the three literal "git ..." lines.
     let entries = sample_entries();
     let freq_map = build_frequency_map(&entries);
     let mut state = AppState::new();
     state.search.search_input = "git".to_string();
-    state.search.search_regex = regex::Regex::new("git").ok();
 
     let mut cache = MockRepoResolver::new();
 
@@ -257,17 +259,21 @@ fn pipeline_search_regex() {
         &entries, &FilterSpec::from(&state), &mut cache, &freq_map,
         &ctx("fish", "/nonexistent", ""),
     );
-    // "git status" x2 + "git pull" = 3
-    assert_eq!(result.len(), 3);
+    assert_eq!(result.len(), 3, "expected git status x2 + git pull");
+    for de in &result {
+        assert!(de.entry.cmd.contains("git"));
+        assert!(de.search_score > 0, "matched entries must have non-zero fuzzy score");
+    }
 }
 
 #[test]
-fn pipeline_search_regex_pattern() {
+fn pipeline_search_subsequence_match() {
+    // Fuzzy matching tolerates gaps: "gst" should match "git status"
+    // because g, s, t appear in order (with gaps).
     let entries = sample_entries();
     let freq_map = build_frequency_map(&entries);
     let mut state = AppState::new();
-    state.search.search_input = "^git (status|pull)$".to_string();
-    state.search.search_regex = regex::Regex::new("^git (status|pull)$").ok();
+    state.search.search_input = "gst".to_string();
 
     let mut cache = MockRepoResolver::new();
 
@@ -275,16 +281,19 @@ fn pipeline_search_regex_pattern() {
         &entries, &FilterSpec::from(&state), &mut cache, &freq_map,
         &ctx("fish", "/nonexistent", ""),
     );
-    assert_eq!(result.len(), 3);
+    assert!(
+        result.iter().any(|de| de.entry.cmd == "git status"),
+        "fuzzy 'gst' must match 'git status'",
+    );
 }
 
 #[test]
-fn pipeline_invalid_regex_returns_all() {
+fn pipeline_search_no_match_returns_empty() {
+    // No subsequence match → zero results.
     let entries = sample_entries();
     let freq_map = build_frequency_map(&entries);
     let mut state = AppState::new();
-    state.search.search_input = "[invalid".to_string(); // bad regex
-    state.search.search_regex = None;
+    state.search.search_input = "@@@".to_string();
 
     let mut cache = MockRepoResolver::new();
 
@@ -292,8 +301,45 @@ fn pipeline_invalid_regex_returns_all() {
         &entries, &FilterSpec::from(&state), &mut cache, &freq_map,
         &ctx("fish", "/nonexistent", ""),
     );
-    // Invalid regex → search_regex is None → no filtering
-    assert_eq!(result.len(), 7);
+    assert_eq!(result.len(), 0);
+}
+
+#[test]
+fn pipeline_search_orders_by_fuzzy_score() {
+    // When a query is active, best fuzzy match comes first regardless of
+    // chronological order. Construct entries where the best match is
+    // logically older than a worse match.
+    let entries = vec![
+        LogEntry {
+            date: "2026-01-01T00:00:00".to_string(),
+            shell: "bash".to_string(),
+            pwd: "/home".to_string(),
+            exit_code: "0".to_string(),
+            cmd: "git status".to_string(),  // strong match for "git"
+        },
+        LogEntry {
+            date: "2026-01-02T00:00:00".to_string(),
+            shell: "bash".to_string(),
+            pwd: "/home".to_string(),
+            exit_code: "0".to_string(),
+            cmd: "vagrant init".to_string(), // weaker fuzzy match for "git"
+        },
+    ];
+    let freq_map = build_frequency_map(&entries);
+    let mut state = AppState::new();
+    state.search.search_input = "git".to_string();
+
+    let mut cache = MockRepoResolver::new();
+
+    let result = apply_pipeline(
+        &entries, &FilterSpec::from(&state), &mut cache, &freq_map,
+        &ctx("bash", "/home", ""),
+    );
+    assert!(!result.is_empty(), "expected at least one fuzzy match");
+    assert_eq!(
+        result[0].entry.cmd, "git status",
+        "strongest fuzzy match must sort first when search is active",
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -391,7 +437,6 @@ fn pipeline_combined_shell_and_search() {
     let idx = state.filter.filters.iter().position(|(f, _)| *f == FilterToggle::ThisShell).unwrap();
     state.filter.toggle_filter(idx);
     state.search.search_input = "git".to_string();
-    state.search.search_regex = regex::Regex::new("git").ok();
 
     let mut cache = MockRepoResolver::new();
 
@@ -644,6 +689,113 @@ fn pipeline_min_cmd_len_filters_short_single_word() {
     let cmds: Vec<&str> = result.iter().map(|d| d.entry.cmd.as_str()).collect();
     // "git status" (multi-word) passes, "make" (4 chars > 3) passes, "vi" (2) and "gcc" (3) filtered
     assert_eq!(cmds, vec!["make", "git status"]);
+}
+
+// ---------------------------------------------------------------------------
+// Bench (ignored by default): runs the pipeline against the real
+// $HOME/.cmdlog.tsv to surface per-render latency on a realistic workload.
+//
+//   cargo test --release bench_fuzzy_pipeline -- --ignored --nocapture
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore]
+fn bench_fuzzy_pipeline() {
+    let path = std::env::var("CMDLOG_FILE")
+        .unwrap_or_else(|_| format!("{}/.cmdlog.tsv", std::env::var("HOME").unwrap()));
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => { eprintln!("skip: no log at {}", path); return; }
+    };
+    let entries: Vec<LogEntry> = content.lines().filter_map(|line| {
+        let parts: Vec<&str> = line.splitn(5, '\t').collect();
+        if parts.len() != 5 { return None; }
+        Some(LogEntry {
+            date: parts[0].to_string(),
+            shell: parts[1].to_string(),
+            pwd: parts[2].to_string(),
+            exit_code: parts[3].to_string(),
+            cmd: parts[4].to_string(),
+        })
+    }).collect();
+    eprintln!("\n--- bench: {} entries from {} ---", entries.len(), path);
+
+    let freq_map = build_frequency_map(&entries);
+    let mut cache = MockRepoResolver::new();
+    let pctx = ctx("bash", "/", "");
+
+    let mut bench = |label: &str, query: &str| {
+        let mut state = AppState::new();
+        state.search.search_input = query.to_string();
+        let spec = FilterSpec::from(&state);
+
+        // Warm up the matcher's DP tables.
+        for _ in 0..3 {
+            let _ = apply_pipeline(&entries, &spec, &mut cache, &freq_map, &pctx);
+        }
+        let iters = 100;
+        let start = std::time::Instant::now();
+        let mut last_len = 0;
+        for _ in 0..iters {
+            last_len = apply_pipeline(&entries, &spec, &mut cache, &freq_map, &pctx).len();
+        }
+        let elapsed = start.elapsed();
+        eprintln!(
+            "{:24} query={:?} results={:>5}  per-call={:?}",
+            label, query, last_len, elapsed / iters,
+        );
+    };
+
+    bench("empty query",          "");
+    bench("short ASCII query",    "git");
+    bench("medium ASCII query",   "git stash");
+    bench("subsequence query",    "gst");
+    bench("no-match query",       "xyzzzzz");
+
+    // Head-to-head: pre-segmented needle (current code) vs re-segmenting the
+    // needle inside the loop (the pre-optimization-#1 baseline). Times raw
+    // scoring against each entry's cmd; isolates the segmentation cost so the
+    // surrounding pipeline overhead doesn't drown out the signal.
+    use nucleo_matcher::{Config, Matcher, Utf32Str};
+    let cmds: Vec<String> = entries.iter().map(|e| e.cmd.clone()).collect();
+    let needle = "gst";  // subsequence query — forces full DP path
+
+    eprintln!("\n--- head-to-head: needle segmentation cost ---");
+
+    let mut matcher = Matcher::new(Config::DEFAULT);
+    let mut hb: Vec<char> = Vec::new();
+
+    // BEFORE: re-segment needle every iteration.
+    let iters = 50;
+    let start = std::time::Instant::now();
+    for _ in 0..iters {
+        let mut nb: Vec<char> = Vec::new();
+        for cmd in &cmds {
+            let n = Utf32Str::new(needle, &mut nb);
+            let h = Utf32Str::new(cmd, &mut hb);
+            let _ = matcher.fuzzy_match(h, n);
+            nb.clear();
+        }
+    }
+    let before = start.elapsed() / iters;
+
+    // AFTER: segment needle once before the loop.
+    let mut nb: Vec<char> = Vec::new();
+    let n = Utf32Str::new(needle, &mut nb);
+    let start = std::time::Instant::now();
+    for _ in 0..iters {
+        for cmd in &cmds {
+            let h = Utf32Str::new(cmd, &mut hb);
+            let _ = matcher.fuzzy_match(h, n);
+        }
+    }
+    let after = start.elapsed() / iters;
+
+    let saved = before.as_nanos().saturating_sub(after.as_nanos());
+    let pct = (saved as f64 / before.as_nanos() as f64) * 100.0;
+    eprintln!("before (in-loop segment): {:?}", before);
+    eprintln!("after  (pre-segmented):   {:?}", after);
+    eprintln!("saved: {} ns ({:.1}%) per render", saved, pct);
 }
 
 #[test]
