@@ -37,11 +37,16 @@ fn cli_help_flag() {
 }
 
 #[test]
-fn cli_no_args_exits_nonzero() {
+fn cli_no_args_requires_tty() {
+    // Bare `cmdlog` launches the TUI, which requires a TTY on stderr.
+    // Without one (as in this test harness) it must exit non-zero with
+    // a clear message rather than blowing up trying to draw on a pipe.
     let output = Command::new(binary_path())
         .output()
         .expect("failed to run cmdlog");
     assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("TTY"), "missing TTY hint: {}", stderr);
 }
 
 #[test]
@@ -67,25 +72,6 @@ fn cli_record_missing_args() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("Usage: cmdlog record <shell> <pwd> <exit_code> <cmd>"));
 }
-
-// ---------------------------------------------------------------------------
-// List
-// ---------------------------------------------------------------------------
-
-#[test]
-fn cli_list_help() {
-    let output = Command::new(binary_path())
-        .args(["list", "--help"])
-        .output()
-        .expect("failed to run cmdlog list --help");
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("--no-tui"));
-    assert!(stdout.contains("--no-color"));
-    assert!(stdout.contains("--search"));
-}
-
-
 
 // ---------------------------------------------------------------------------
 // Install / Uninstall

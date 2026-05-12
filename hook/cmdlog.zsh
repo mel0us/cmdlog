@@ -34,11 +34,13 @@ precmd_functions=(__cmdlog_record "${precmd_functions[@]}")
 
 # Wrapper function — always redefined on re-source (picks up new binary path)
 # Captures TUI selection and injects into edit buffer.
+# Only bare `cmdlog` (no args) triggers the TUI capture; everything else
+# (install, doctor, compact, ...) passes straight through to the binary.
 cmdlog() {
-    if [[ "${1-}" == "list" ]]; then
+    if [[ $# -eq 0 ]]; then
         local cmd method
         method=$("$__CMDLOG_BIN" config inject.zsh)
-        cmd=$("$__CMDLOG_BIN" "$@")
+        cmd=$("$__CMDLOG_BIN")
         if [[ -n "$cmd" ]]; then
             case "$method" in
                 tiocsti)

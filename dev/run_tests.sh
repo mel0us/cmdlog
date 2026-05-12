@@ -182,15 +182,6 @@ $CMDLOG record bash /test 0 "make -j8"
 n=$(wc -l < $HOME/.cmdlog.tsv 2>/dev/null || echo 0)
 [[ "$n" -eq 5 ]] && pass "dedup: all 5 entries written (no record-time dedup)" || fail "dedup: $n entries (expected 5)"
 
-# Load-time dedup collapses consecutive duplicates
-n=$($CMDLOG list --no-color -a | wc -l)
-[[ "$n" -eq 2 ]] && pass "dedup: list collapses consecutive duplicates (5→2)" || fail "dedup: list shows $n entries (expected 2)"
-
-# Non-consecutive same command preserved
-$CMDLOG record bash /test 0 "git status"
-n=$($CMDLOG list --no-color -a | wc -l)
-[[ "$n" -eq 3 ]] && pass "dedup: non-consecutive same command shown" || fail "dedup: list shows $n entries (expected 3)"
-
 # --------------------------------------------------------------------------
 section "Record: shell type in log"
 # --------------------------------------------------------------------------
@@ -215,123 +206,15 @@ bad=$(echo "$line" | grep -cvP '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\tbash\t/hom
 [[ "$bad" -eq 0 ]] && pass "format: correct TSV (DATE\\tSHELL\\tPWD\\tEXIT_CODE\\tCMD)" || fail "format: bad TSV: $line"
 
 # --------------------------------------------------------------------------
-section "List: query filters"
+section "Bare cmdlog: TTY requirement"
 # --------------------------------------------------------------------------
 
-cat > $HOME/.cmdlog.tsv << 'DATA'
-2026-04-05T09:15:00	bash	/home/edwardc/project-a	0	git status
-2026-04-05T09:16:30	bash	/home/edwardc/project-a	0	make -j8 all
-2026-04-05T10:00:00	zsh	/home/edwardc/project-b	0	python3 train.py --epochs 10
-2026-04-05T14:30:00	tcsh	/home/edwardc/project-a	0	grep -rn TODO src/
-2026-04-06T08:00:00	bash	/home/edwardc/project-a	0	git pull origin main
-2026-04-06T08:05:00	bash	/home/edwardc/project-a	0	echo $PATH | tr : '\n'
-2026-04-06T09:00:00	zsh	/home/edwardc/project-b	0	docker compose up -d
-2026-04-06T09:30:00	tcsh	/tmp	0	nvcc --version
-2026-04-06T10:00:00	bash	/home/edwardc/project-a	0	pytest tests/ -v
-2026-04-06T10:15:00	zsh	/home/edwardc/project-b	0	cmake -B build
-DATA
-
-# Default
-n=$($CMDLOG list --no-color | wc -l)
-[[ "$n" -eq 10 ]] && pass "list: default shows all 10 (< 20)" || fail "list: default shows $n"
-
-# -n limit
-n=$($CMDLOG list --no-color -n 3 | wc -l)
-[[ "$n" -eq 3 ]] && pass "list: -n 3 shows 3" || fail "list: -n 3 shows $n"
-
-# -a
-n=$($CMDLOG list --no-color -a | wc -l)
-[[ "$n" -eq 10 ]] && pass "list: -a shows all 10" || fail "list: -a shows $n"
-
-# -t shell
-n=$($CMDLOG list --no-color -a -t bash | wc -l)
-[[ "$n" -eq 5 ]] && pass "list: -t bash returns 5" || fail "list: -t bash returns $n"
-
-n=$($CMDLOG list --no-color -a -t zsh | wc -l)
-[[ "$n" -eq 3 ]] && pass "list: -t zsh returns 3" || fail "list: -t zsh returns $n"
-
-n=$($CMDLOG list --no-color -a -t tcsh | wc -l)
-[[ "$n" -eq 2 ]] && pass "list: -t tcsh returns 2" || fail "list: -t tcsh returns $n"
-
-# -d date
-n=$($CMDLOG list --no-color -a -d 2026-04-05 | wc -l)
-[[ "$n" -eq 4 ]] && pass "list: -d 2026-04-05 returns 4" || fail "list: -d 2026-04-05 returns $n"
-
-n=$($CMDLOG list --no-color -a -d 2026-04-06 | wc -l)
-[[ "$n" -eq 6 ]] && pass "list: -d 2026-04-06 returns 6" || fail "list: -d 2026-04-06 returns $n"
-
-n=$($CMDLOG list --no-color -a -d 2026-04 | wc -l)
-[[ "$n" -eq 10 ]] && pass "list: -d 2026-04 returns all 10" || fail "list: -d 2026-04 returns $n"
-
-# -s search
-n=$($CMDLOG list --no-color -a -s git | wc -l)
-[[ "$n" -eq 2 ]] && pass "list: -s git returns 2" || fail "list: -s git returns $n"
-
-# -p path
-n=$($CMDLOG list --no-color -a -p /home/edwardc/project-a | wc -l)
-[[ "$n" -eq 6 ]] && pass "list: -p project-a returns 6" || fail "list: -p project-a returns $n"
-
-n=$($CMDLOG list --no-color -a -p /home/edwardc/project-b | wc -l)
-[[ "$n" -eq 3 ]] && pass "list: -p project-b returns 3" || fail "list: -p project-b returns $n"
-
-n=$($CMDLOG list --no-color -a -p /tmp | wc -l)
-[[ "$n" -eq 1 ]] && pass "list: -p /tmp returns 1" || fail "list: -p /tmp returns $n"
-
-# Combined
-n=$($CMDLOG list --no-color -a -d 2026-04-06 -t bash | wc -l)
-[[ "$n" -eq 3 ]] && pass "list: date+shell returns 3" || fail "list: date+shell returns $n"
-
-n=$($CMDLOG list --no-color -a -d 2026-04-06 -t bash -s pytest | wc -l)
-[[ "$n" -eq 1 ]] && pass "list: date+shell+search returns 1" || fail "list: date+shell+search returns $n"
-
-n=$($CMDLOG list --no-color -a -t zsh -p /home/edwardc/project-b | wc -l)
-[[ "$n" -eq 3 ]] && pass "list: shell+path returns 3" || fail "list: shell+path returns $n"
-
-# No match
-out=$($CMDLOG list --no-color -s zzzznonexistent 2>&1)
-[[ "$out" == "No matching entries." ]] && pass "list: no match message" || fail "list: no match output: '$out'"
-
-# Fuzzy (-f) is a separate flag from substring (-s). "gpl" matches
-# "git pull" as a g→p→l subsequence with gaps; literal substring "gpl"
-# matches nothing in the fixture.
-n=$($CMDLOG list --no-color -a -s gpl | wc -l)
-[[ "$n" -eq 0 ]] && pass "list: -s 'gpl' literal returns 0" || fail "list: -s 'gpl' returns $n"
-
-n=$($CMDLOG list --no-color -a -f gpl | wc -l)
-[[ "$n" -ge 1 ]] && pass "list: -f 'gpl' fuzzy-matches 'git pull'" || fail "list: -f 'gpl' returns $n"
-
-# -s and -f combine with AND. "git" substring keeps the 2 git-prefixed
-# entries; fuzzy "gts" matches both "git status" (g→t→s) and
-# "grep ... TODO src/" — the intersection is "git status" only.
-n=$($CMDLOG list --no-color -a -s git -f gts | wc -l)
-[[ "$n" -eq 1 ]] && pass "list: -s + -f combine (AND)" || fail "list: -s + -f returns $n"
-
-$CMDLOG list --help 2>&1 | grep -q -- "-f, --fuzzy" \
-    && pass "list: --help mentions -f/--fuzzy" \
-    || fail "list: --help missing -f/--fuzzy"
-
-# --no-color
-out=$($CMDLOG list --no-color -n 1)
-if echo "$out" | grep -qP '\033\['; then
-    fail "list: --no-color has ANSI codes"
-else
-    pass "list: --no-color clean output"
-fi
-
-# --help
-$CMDLOG list --help >/dev/null 2>&1 && pass "list: --help exits 0" || fail "list: --help failed"
-
-# Missing log
-mv $HOME/.cmdlog.tsv $HOME/.cmdlog.tsv.bak
-out=$($CMDLOG list 2>&1)
+# Bare `cmdlog` (no args) launches the TUI; with no stderr TTY (as here) it
+# must exit non-zero with a clear hint rather than blowing up on a pipe.
+out=$($CMDLOG 2>&1 >/dev/null)
 rc=$?
-mv $HOME/.cmdlog.tsv.bak $HOME/.cmdlog.tsv
-[[ "$out" == "No matching entries." ]] && pass "list: missing log shows 'No matching entries.'" || fail "list: missing log output: '$out'"
-
-# Empty log
-> $HOME/.cmdlog.tsv
-out=$($CMDLOG list 2>&1)
-[[ "$out" == "No matching entries." ]] && pass "list: empty log message" || fail "list: empty log output: '$out'"
+[[ $rc -ne 0 ]] && pass "bare cmdlog: exits non-zero without a TTY" || fail "bare cmdlog: exit $rc (expected non-zero)"
+echo "$out" | grep -qi 'TTY' && pass "bare cmdlog: stderr mentions TTY" || fail "bare cmdlog: stderr missing TTY hint: $out"
 
 # --------------------------------------------------------------------------
 section "E2E: bash hook + binary"
@@ -427,29 +310,6 @@ n=$(gcount '	ls -la' $HOME/.cmdlog.tsv)
 [[ "$n" -ge 1 ]] && pass "e2e tcsh: 'ls -la' recorded (no record-time waive)" || fail "e2e tcsh: 'ls -la' not found"
 
 # --------------------------------------------------------------------------
-section "List: waive filtering at display time"
-# --------------------------------------------------------------------------
-
-rm -f $HOME/.cmdlog.tsv
-# Write config with waive list to test HOME
-cat > "$HOME/.cmdlog.conf" << 'CONF'
-[waive]
-commands = ["ls", "cat"]
-CONF
-
-$CMDLOG record bash /test 0 "git status"
-$CMDLOG record bash /test 0 "ls -la"
-$CMDLOG record bash /test 0 "cat file.txt"
-$CMDLOG record bash /test 0 "make -j8"
-$CMDLOG record bash /test 0 "cat f | grep x"
-
-n=$($CMDLOG list --no-color -a | wc -l)
-[[ "$n" -eq 3 ]] && pass "waive display: shows 3 (git, make, piped cat)" || fail "waive display: shows $n (expected 3)"
-
-# Restore empty config for remaining tests
-echo "" > "$HOME/.cmdlog.conf"
-
-# --------------------------------------------------------------------------
 section "Hook: cmdlog wrapper function defined"
 # --------------------------------------------------------------------------
 
@@ -464,35 +324,6 @@ echo "$out" | grep -q 'function' && pass "zsh: cmdlog wrapper function defined" 
 # tcsh wrapper
 out=$(tcsh -c "set prompt=x; source $CMDLOG_DIR/hook/cmdlog.tcsh; alias cmdlog" 2>&1)
 [[ -n "$out" ]] && pass "tcsh: cmdlog wrapper alias defined" || fail "tcsh: cmdlog wrapper alias missing"
-
-# --------------------------------------------------------------------------
-section "TUI: non-interactive fallback"
-# --------------------------------------------------------------------------
-
-cat > $HOME/.cmdlog.tsv << 'DATA'
-2026-04-06T08:00:00	bash	/home/edwardc/project-a	0	git pull origin main
-2026-04-06T09:00:00	zsh	/home/edwardc/project-b	0	docker compose up -d
-2026-04-06T10:00:00	bash	/home/edwardc/project-a	0	pytest tests/ -v
-DATA
-
-# Piped output should use linear mode (no escape sequences from TUI)
-n=$($CMDLOG list --no-color -a | wc -l)
-[[ "$n" -eq 3 ]] && pass "tui: piped output uses linear fallback" || fail "tui: piped output shows $n lines (expected 3)"
-
-# --no-tui flag
-n=$($CMDLOG list --no-tui -a 2>/dev/null | wc -l)
-[[ "$n" -eq 3 ]] && pass "tui: --no-tui forces linear output" || fail "tui: --no-tui shows $n lines (expected 3)"
-
-# --no-color + --no-tui combined
-out=$($CMDLOG list --no-color --no-tui -n 1)
-if echo "$out" | grep -qP '\033\['; then
-    fail "tui: --no-color --no-tui has ANSI codes"
-else
-    pass "tui: --no-color --no-tui clean output"
-fi
-
-# --help still works
-$CMDLOG list --help 2>&1 | grep -q 'no-tui' && pass "tui: --help mentions --no-tui" || fail "tui: --help missing --no-tui"
 
 # --------------------------------------------------------------------------
 section "Interactive: tcsh alias no if? prompt (expect)"

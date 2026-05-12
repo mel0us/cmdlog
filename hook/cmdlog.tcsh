@@ -30,8 +30,9 @@ if ("$__cmdlog_cur_precmd" !~ *__cmdlog_do_record*) then
 endif
 unset __cmdlog_cur_precmd
 
-# Wrapper: cmdlog list captures stdout and injects into shell.
+# Wrapper: bare `cmdlog` (no args) captures TUI selection and injects.
+# Anything else passes through to the binary unchanged.
 # Uses short-form if only — each step guarded by $__cmdlog_eval flag.
-alias cmdlog 'set __cmdlog_a1 = \!:1 ; set __cmdlog_sel = "" ; set __cmdlog_eval = 0 ; set __cmdlog_method = "" ; set __cmdlog_tmpf = /tmp/.cmdlog_hist.$$ ; if ("$__cmdlog_a1" == "list") set __cmdlog_method = `$__cmdlog_bin config inject.tcsh` ; if ("$__cmdlog_a1" == "list") set __cmdlog_sel = `$__cmdlog_bin \!*` ; if ("$__cmdlog_sel" != "") set __cmdlog_eval = 1 ; if ($__cmdlog_eval) if ("$__cmdlog_method" != "tiocsti") echo "$__cmdlog_sel" > "$__cmdlog_tmpf" ; if ($__cmdlog_eval) if ("$__cmdlog_method" != "tiocsti") history -L "$__cmdlog_tmpf" ; if ($__cmdlog_eval) rm -f "$__cmdlog_tmpf" ; if ($__cmdlog_eval) $__cmdlog_bin inject tcsh "$__cmdlog_sel" ; if ("$__cmdlog_a1" != "list") $__cmdlog_bin \!*'
+alias cmdlog 'set __cmdlog_args = "\!*" ; set __cmdlog_sel = "" ; set __cmdlog_eval = 0 ; set __cmdlog_method = "" ; set __cmdlog_tmpf = /tmp/.cmdlog_hist.$$ ; if ("$__cmdlog_args" == "") set __cmdlog_method = `$__cmdlog_bin config inject.tcsh` ; if ("$__cmdlog_args" == "") set __cmdlog_sel = `$__cmdlog_bin` ; if ("$__cmdlog_sel" != "") set __cmdlog_eval = 1 ; if ($__cmdlog_eval) if ("$__cmdlog_method" != "tiocsti") echo "$__cmdlog_sel" > "$__cmdlog_tmpf" ; if ($__cmdlog_eval) if ("$__cmdlog_method" != "tiocsti") history -L "$__cmdlog_tmpf" ; if ($__cmdlog_eval) rm -f "$__cmdlog_tmpf" ; if ($__cmdlog_eval) $__cmdlog_bin inject tcsh "$__cmdlog_sel" ; if ("$__cmdlog_args" != "") $__cmdlog_bin \!*'
 
 endif

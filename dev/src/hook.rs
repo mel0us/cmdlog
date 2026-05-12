@@ -107,9 +107,9 @@ pub fn install_hook(rc_path: &Path, shell: &str, home: &Path) -> Result<(), Stri
 
     let is_csh = shell == "tcsh";
     let (alias_line, tz_line) = if is_csh {
-        ("alias cl 'cmdlog list'", "setenv CMDLOG_TZ +8")
+        ("alias cl 'cmdlog'", "setenv CMDLOG_TZ +8")
     } else {
-        ("alias cl='cmdlog list'", "export CMDLOG_TZ=+8")
+        ("alias cl='cmdlog'", "export CMDLOG_TZ=+8")
     };
 
     let block = format!(

@@ -1,8 +1,8 @@
 //! cmdlog — Cross-shell command logger and query tool.
 //!
 //! Usage:
-//!   cmdlog record <shell> <pwd> <exit_code> <cmd>    Record a command (called by shell hooks)
-//!   cmdlog list [options]                Query/filter the log
+//!   cmdlog                                          Open the interactive TUI
+//!   cmdlog record <shell> <pwd> <exit_code> <cmd>   Record a command (called by shell hooks)
 //!
 //! The binary handles builtin detection, timestamping, and log querying —
 //! replacing per-shell scripts and Python hist.
@@ -11,7 +11,7 @@ use std::env;
 use std::io::{self, BufWriter, Write};
 use std::process;
 
-use cmdlog::{cmd, log, time, tui};
+use cmdlog::{cmd, log, tui};
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -136,39 +136,10 @@ fn cmd_uninstall(shell: &str) {
 }
 
 // ---------------------------------------------------------------------------
-// list subcommand
+// TUI (bare `cmdlog`)
 // ---------------------------------------------------------------------------
 
-fn print_list_help() {
-    println!(
-        "Usage: cmdlog list [options]
-
-Options:
-  -n, --last N        Show last N entries (default: 20)
-  -a, --all           Show all entries
-  -s, --search PAT    Filter command text (substring, case-insensitive)
-  -f, --fuzzy PAT     Filter command text (fuzzy, fzf-style)
-  -d, --date PREFIX   Filter by date prefix (e.g. 2026-04-06)
-  -t, --shell-type S  Filter by shell (bash, zsh, tcsh)
-  -p, --path PREFIX   Filter by working directory prefix
-  --today             Today's entries only
-  --here              Current directory only
-  --no-color          Disable colored output
-  --no-tui            Disable interactive mode
-  -h, --help          Show this help
-
-Log file: ~/.cmdlog.tsv (override with CMDLOG_FILE env var)"
-    );
-}
-
-fn cmd_list(args: &[String]) {
-    let opts = cmd::parse_list_args(args);
-
-    if opts.help {
-        print_list_help();
-        process::exit(0);
-    }
-
+fn cmd_tui() {
     let dir = cmdlog_dir();
     let current_shell = detect_shell().unwrap_or_default();
 
@@ -221,122 +192,21 @@ fn cmd_list(args: &[String]) {
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
 
-    // TUI mode: stderr must be a TTY (TUI renders there), no --no-color, no --no-tui
-    let stderr_tty = is_tty(2);
-    if stderr_tty && !opts.no_color && !opts.no_tui {
-        let entries = log::load_entries();
-        if entries.is_empty() {
-            eprintln!("No matching entries.");
-            return;
-        }
-
-        config_state.session.current_dir = current_dir.clone();
-
-        if let Some(cmd) = tui::run(entries, &dir, &conf, config_state, &current_shell, &current_dir) {
-            println!("{}", cmd);
-        }
-        return;
+    if !is_tty(2) {
+        eprintln!("[cmdlog] stderr is not a TTY — TUI requires an interactive terminal.");
+        process::exit(1);
     }
 
-    run_linear_list(&opts, &config_state, &current_dir);
-}
-
-/// Apply CLI filters, limit, and display entries in linear mode.
-fn run_linear_list(opts: &cmd::ListOpts, config_state: &tui::state::AppState, current_dir: &str) {
-    let use_color = !opts.no_color && is_tty(1);
-    let today_str = if opts.today {
-        Some(time::today_prefix())
-    } else {
-        None
-    };
-    let cwd = if opts.here {
-        Some(current_dir.to_string())
-    } else {
-        None
-    };
-    let search_lower = opts.search.as_ref().map(|s| s.to_lowercase());
-    // Pre-segment fuzzy needle once (NeedleBuf is reused across all entries).
-    let fuzzy_query = opts.fuzzy.as_deref();
-    let fuzzy_buf = fuzzy_query.map(tui::filter::NeedleBuf::new);
-
-    let waive_commands = &config_state.session.waive_commands;
-    let waive_min_cmd_len = config_state.session.waive_min_cmd_len;
-
-    // Read and filter
-    let all = log::load_entries();
-    let mut entries: Vec<log::LogEntry> = all
-        .into_iter()
-        .filter(|entry| {
-            if let Some(ref t) = today_str {
-                if !entry.date.starts_with(t.as_str()) {
-                    return false;
-                }
-            }
-            if let Some(ref d) = opts.date {
-                if !entry.date.starts_with(d.as_str()) {
-                    return false;
-                }
-            }
-            if let Some(ref st) = opts.shell_type {
-                if entry.shell != *st {
-                    return false;
-                }
-            }
-            if let Some(ref pp) = opts.path_prefix {
-                if !entry.pwd.starts_with(pp.as_str()) {
-                    return false;
-                }
-            }
-            if let Some(ref c) = cwd {
-                if entry.pwd != *c {
-                    return false;
-                }
-            }
-            if let Some(ref sl) = search_lower {
-                if !entry.cmd.to_lowercase().contains(sl.as_str()) {
-                    return false;
-                }
-            }
-            if let (Some(q), Some(buf)) = (fuzzy_query, fuzzy_buf.as_ref()) {
-                if tui::filter::fuzzy_score(&entry.cmd, q, buf).is_none() {
-                    return false;
-                }
-            }
-            if cmd::should_waive(&entry.cmd, waive_commands, waive_min_cmd_len) {
-                return false;
-            }
-            true
-        })
-        .collect();
-
-    // Limit
-    if !opts.show_all {
-        let n = opts.last_n.unwrap_or(20);
-        if entries.len() > n {
-            entries = entries.split_off(entries.len() - n);
-        }
-    }
-
+    let entries = log::load_entries();
     if entries.is_empty() {
         eprintln!("No matching entries.");
         return;
     }
 
-    // Display
-    let stdout = io::stdout();
-    let mut out = BufWriter::new(stdout.lock());
-    for entry in &entries {
-        let dir_display = if entry.pwd == current_dir { tui::ui::PWD_DISPLAY } else { &entry.pwd };
-        if use_color {
-            let ec_color = if entry.exit_code != "0" { "31" } else { "90" };
-            let _ = writeln!(
-                out,
-                "\x1b[90m{}\x1b[0m  \x1b[36m{:5}\x1b[0m  \x1b[{}m{}\x1b[0m  \x1b[33m{}\x1b[0m  {}",
-                entry.date, entry.shell, ec_color, entry.exit_code, dir_display, entry.cmd
-            );
-        } else {
-            let _ = writeln!(out, "{}  {:5}  {}  {}  {}", entry.date, entry.shell, entry.exit_code, dir_display, entry.cmd);
-        }
+    config_state.session.current_dir = current_dir.clone();
+
+    if let Some(cmd) = tui::run(entries, &dir, &conf, config_state, &current_shell, &current_dir) {
+        println!("{}", cmd);
     }
 }
 
@@ -683,7 +553,7 @@ fn print_usage() {
         "cmdlog — Cross-shell command logger
 
 Usage:
-  cmdlog list [options]               Query the log (TUI or linear)
+  cmdlog                              Open the interactive TUI
   cmdlog install [-f] <shell>         Install hook in rc file
          aliases: add, i
          -f, --force: remove and reinstall
@@ -700,8 +570,7 @@ Internal (called by shell hooks):
   cmdlog record <shell> <pwd> <exit_code> <cmd>   Record a command to the log
   cmdlog inject <shell> <text>        Push text into terminal via TIOCSTI
 
-Shells: bash, zsh, tcsh
-Run 'cmdlog list --help' for query options."
+Shells: bash, zsh, tcsh"
     );
 }
 
@@ -709,8 +578,8 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        print_usage();
-        process::exit(1);
+        cmd_tui();
+        return;
     }
 
     match args[1].as_str() {
@@ -727,9 +596,6 @@ fn main() {
                 args[5..].join(" ")
             };
             cmd_record(&args[2], &args[3], &args[4], &cmd);
-        }
-        "list" => {
-            cmd_list(&args[2..]);
         }
         "install" | "add" | "i" | "in" | "ins" | "inst" | "insta" | "instal"
         | "isnt" | "isnta" | "isntal" | "isntall" => {

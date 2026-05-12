@@ -21,7 +21,7 @@ curl -fsSL https://raw.githubusercontent.com/mel0us/cmdlog/main/install.sh | bas
 cmdlog install bash      # or: zsh, tcsh
 
 # Open a new shell, then:
-cmdlog list              # launches interactive TUI
+cmdlog                   # launches interactive TUI
 ```
 
 ## Installation
@@ -75,10 +75,11 @@ remove: `cmdlog uninstall <shell>`.
 
 ### Interactive TUI
 
-When stderr is a TTY, `cmdlog list` launches an interactive browser:
+Run `cmdlog` with no arguments to open the interactive browser. Stderr
+must be a TTY (the TUI renders there so stdout is free for the result):
 
 ```bash
-cmdlog list                # full TUI
+cmdlog                   # full TUI
 ```
 
 The TUI has five zones, navigable with **Tab**:
@@ -184,35 +185,19 @@ cmdlog compact -f           # force: remove entries from the log
 characters in reverse-video). `-f` rewrites the log atomically (temp-file +
 verify + rename).
 
-### Linear Output
-
-For scripting or when stderr is not a TTY:
+### Other Subcommands
 
 ```bash
-cmdlog list --no-tui                    # linear output to terminal
-cmdlog list --no-color                  # plain text (for piping)
-cmdlog list -a -t bash -s "git"         # all entries, bash only, matching "git"
-cmdlog list -a -f "gst"                 # fuzzy: matches "git status", "gateway start", etc.
-cmdlog list --today --here              # today's commands in current dir
-cmdlog list -d 2026-04 -p /tmp -n 50   # April, /tmp prefix, last 50
+cmdlog install <shell>      # wire the hook into ~/.bashrc / ~/.zshrc / ~/.tcshrc
+cmdlog uninstall <shell>    # remove the hook
+cmdlog compact [-n | -f]    # summarize / list / prune waived + malformed entries
+cmdlog config <key>         # query a config value (e.g. inject.bash)
+cmdlog doctor [shell]       # check and repair ~/.cmdlog.conf
+cmdlog hook <shell>         # print embedded hook source (for eval)
+cmdlog --version            # show version
 ```
 
-### CLI Flags
-
-| Flag | Description |
-|------|-------------|
-| `-n`, `--last N` | Show last N entries (default: 20) |
-| `-a`, `--all` | Show all entries |
-| `-s`, `--search PAT` | Filter by command substring (case-insensitive) |
-| `-f`, `--fuzzy PAT` | Filter by fuzzy match (fzf-style, subsequence with bonuses) |
-| `-d`, `--date PREFIX` | Filter by date prefix (e.g., `2026-04-06`) |
-| `-t`, `--shell-type S` | Filter by shell (`bash`, `zsh`, `tcsh`) |
-| `-p`, `--path PREFIX` | Filter by working directory prefix |
-| `--today` | Today's entries only |
-| `--here` | Current directory only |
-| `--no-color` | Disable colored output |
-| `--no-tui` | Disable interactive mode |
-| `--version`, `-v`, `-V` | Show version and exit |
+All filtering, searching, and ranking is done interactively inside the TUI.
 
 ## Configuration
 
@@ -224,8 +209,8 @@ when you exit the TUI, so your preferences persist between sessions.
 
 ### Waive List
 
-Commands listed under `[waive]` are hidden from `cmdlog list` output (but
-still recorded to the log). Commands containing shell operators
+Commands listed under `[waive]` are hidden from the TUI (but still recorded
+to the log). Commands containing shell operators
 (`` ; & | ( ) { } $ ` ! < > ``) are always shown regardless of the waive list.
 
 ```toml
@@ -238,8 +223,9 @@ commands = [
 min_cmd_len = 5   # hide single-word commands of 5 chars or fewer (e.g., "make", "vim")
 ```
 
-Edit `~/.cmdlog.conf` directly. Changes take effect on the next `cmdlog list`.
-The `min_cmd_len` filter only applies to single-word commands without shell operators.
+Edit `~/.cmdlog.conf` directly. Changes take effect the next time you open
+`cmdlog`. The `min_cmd_len` filter only applies to single-word commands
+without shell operators.
 
 ### Show Columns
 
@@ -330,21 +316,23 @@ Accepted commands are appended as a TSV line to `~/.cmdlog.tsv`:
 
 ### Querying
 
-`cmdlog list` reads the log, applies waive filtering and dedup at display
-time, then either launches the TUI (rendered on stderr) or prints linear
-output. Config validation runs inline before the TUI starts — run
-`cmdlog doctor` to repair broken configs.
+Bare `cmdlog` reads the log, applies waive filtering and dedup at display
+time, then launches the TUI (rendered on stderr). Config validation runs
+inline before the TUI starts — run `cmdlog doctor` to repair broken configs.
 
 ### Shell Wrapper
 
 Each hook defines a `cmdlog()` wrapper function (or alias in tcsh) that
-intercepts `cmdlog list` calls. The wrapper:
+intercepts bare `cmdlog` calls (no arguments). The wrapper:
 
 1. Captures the binary's stdout (the selected command, printed when you
    press Enter in the TUI).
 2. Reads the injection method from `~/.cmdlog.conf` `[inject]`.
 3. Injects the command into the shell's edit buffer for editing,
    preserving access to aliases, functions, and shell-specific syntax.
+
+Any `cmdlog <subcommand> ...` invocation (install, doctor, compact, ...)
+passes straight through to the binary unchanged.
 
 The tcsh hook chains into any existing `precmd` alias (e.g., gitprompt.pl)
 rather than replacing it.
@@ -370,8 +358,7 @@ Format: `DATE\tSHELL\tPWD\tEXIT_CODE\tCMD` (TSV, one line per entry).
 |-----------|------|
 | Record (skip builtin) | ~2 ms |
 | Record (log) | ~2 ms |
-| List (TUI startup) | ~40 ms |
-| List (linear) | ~9 ms |
+| TUI startup | ~40 ms |
 | Binary size | ~2 MB |
 
 Hooks fire after command completion, before the next prompt. No impact on

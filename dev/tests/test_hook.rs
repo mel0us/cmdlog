@@ -70,7 +70,7 @@ fn install_hook_bash_writes_eval_block() {
     assert!(content.contains("# >>> cmdlog >>>"));
     assert!(content.contains("eval \""));
     assert!(content.contains("cmdlog hook bash"));
-    assert!(content.contains("alias cl='cmdlog list'"));
+    assert!(content.contains("alias cl='cmdlog'"));
     assert!(content.contains("export CMDLOG_TZ"));
     assert!(content.contains("# <<< cmdlog <<<"));
     // bash should NOT use the source-form
@@ -110,7 +110,7 @@ fn install_hook_tcsh_writes_source_block() {
     assert!(content.contains("\nsource "));
     assert!(content.contains("cmdlog.tcsh"));
     assert!(!content.contains("eval"), "tcsh must not use eval form");
-    assert!(content.contains("alias cl 'cmdlog list'"));
+    assert!(content.contains("alias cl 'cmdlog'"));
     assert!(content.contains("setenv CMDLOG_TZ"));
     assert!(!content.contains("export CMDLOG_TZ"));
 
