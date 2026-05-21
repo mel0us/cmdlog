@@ -101,7 +101,6 @@ main() {
     mkdir -p "$PREFIX"
     # Hooks are embedded in the binary (use `cmdlog hook <shell>` or the
     # tcsh extraction performed by `cmdlog install tcsh`) — no hook/ dir.
-    rm -rf "$PREFIX/hook"
     cp "$staged/cmdlog"       "$PREFIX/cmdlog"
     cp "$staged/default.conf" "$PREFIX/default.conf"
     chmod +x "$PREFIX/cmdlog"
