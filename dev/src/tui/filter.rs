@@ -305,18 +305,24 @@ pub fn apply_pipeline<R: RepoResolver>(
         .collect();
 
     if spec.dedup {
-        // When deduping with a search active, keep the highest-scoring
-        // occurrence rather than the most recent — otherwise a perfect
-        // earlier match gets dropped in favor of a later partial one.
-        let mut seen = std::collections::HashSet::new();
-        let mut deduped = Vec::new();
-        for e in display.into_iter().rev() {
-            if seen.insert((e.group_score, e.entry.cmd.clone())) {
-                deduped.push(e);
+        // Collapse identical commands across all groups. Keep the occurrence
+        // with the highest group_score so the survivor reflects the most
+        // contextually relevant run; tie-break to the most recent.
+        let mut best: HashMap<String, usize> = HashMap::new();
+        for (idx, e) in display.iter().enumerate() {
+            match best.get(&e.entry.cmd) {
+                Some(&prev) if display[prev].group_score > e.group_score => {}
+                _ => {
+                    best.insert(e.entry.cmd.clone(), idx);
+                }
             }
         }
-        deduped.reverse();
-        display = deduped;
+        let keep: std::collections::HashSet<usize> = best.into_values().collect();
+        display = display
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, e)| if keep.contains(&i) { Some(e) } else { None })
+            .collect();
     }
 
     display.sort_by(|a, b| {

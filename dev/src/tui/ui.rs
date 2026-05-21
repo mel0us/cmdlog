@@ -534,7 +534,7 @@ fn draw_header(frame: &mut Frame, state: &AppState, area: Rect) {
     let mut spans = layout_to_spans(&group_layout, &group_badges, "Context Group: ");
     let group_desc = if state.nav.focus == FocusZone::Group {
         if state.nav.focus_index == state.filter.group.len() {
-            "Space toggle  deduplicate commands within each group"
+            "Space toggle  collapse identical commands across all groups"
         } else {
             "← → reorder  Space toggle  group matching entries on top"
         }
