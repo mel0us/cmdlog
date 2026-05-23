@@ -95,7 +95,10 @@ main() {
     log "extracting"
     tar -C "$tmp" -xzf "$tmp/$asset"
     staged="$tmp/cmdlog-${target}"
-    [ -x "$staged/cmdlog" ] || err "extracted bundle missing cmdlog binary"
+    # Check existence separately from executability — some tar variants
+    # and restrictive umasks strip the +x bit on extract.
+    [ -f "$staged/cmdlog" ] || err "extracted bundle missing cmdlog binary"
+    chmod +x "$staged/cmdlog"
 
     log "installing to $PREFIX"
     mkdir -p "$PREFIX"
